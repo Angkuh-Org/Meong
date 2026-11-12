@@ -1,0 +1,45 @@
+name: ci
+
+# TODO(release): add a tag-triggered workflow that builds x86_64 and aarch64
+# binaries and attaches them plus .sha256 files to a GitHub Release. Decide
+# first whether to static-link ncursesw or document the libncursesw.so.6
+# runtime dependency.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: x86_64
+          - runner: ubuntu-22.04-arm
+            arch: aarch64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install build and test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libncurses-dev pkg-config tmux lld
+      - name: Check shell entrypoints
+        run: sh -n build.sh tests/test.sh
+      - name: Build and test
+        run: ./tests/test.sh
+      - name: Smoke test
+        run: ./build/meong --version
