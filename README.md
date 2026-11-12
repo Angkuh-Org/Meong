@@ -24,9 +24,13 @@ back to `-lncursesw`).
 The binary is ~80 KB stripped with lld; GNU bfd defaults to 64K
 max-page-size on aarch64 and links ~133 KB.
 
+Release binaries are built on Ubuntu 22.04 and need glibc 2.35+,
+`libncursesw.so.6`/`libtinfo.so.6`, and a terminfo entry (`ncurses-base`).
+
 ## Development
 
 Module map and where new code belongs: [`docs/layout.md`](docs/layout.md).
+Release and prebuilt requirements: [`docs/release.md`](docs/release.md).
 
 ## Run
 

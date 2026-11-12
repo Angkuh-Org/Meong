@@ -1,10 +1,5 @@
 name: ci
 
-# TODO(release): add a tag-triggered workflow that builds x86_64 and aarch64
-# binaries and attaches them plus .sha256 files to a GitHub Release. Decide
-# first whether to static-link ncursesw or document the libncursesw.so.6
-# runtime dependency.
-
 on:
   push:
     branches: [main]
