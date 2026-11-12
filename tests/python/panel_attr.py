@@ -11,8 +11,17 @@ surface-coloured panel, not just holes that fall back to the terminal default.
 """
 import re
 import sys
+import unicodedata
 
 SGR = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def cell_width(ch):
+    if unicodedata.combining(ch):
+        return 0
+    if unicodedata.east_asian_width(ch) in ("W", "F"):
+        return 2
+    return 1
 
 
 def screen(text):
@@ -44,7 +53,11 @@ def screen(text):
         if ch == "\n":
             rows.append([])
         elif ch != "\r":
-            rows[-1].append((ch, bg))
+            width = cell_width(ch)
+            if width:
+                rows[-1].append((ch, bg))
+                if width == 2:
+                    rows[-1].append((" ", bg))
         i += 1
     return rows
 

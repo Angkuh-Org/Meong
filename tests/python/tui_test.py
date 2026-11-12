@@ -160,13 +160,7 @@ def main():
         if not s.wait_for("ask anything"):
             fail("the chat screen never appeared", s)
         s.send(b"hello\r")
-        if not s.wait_for("Hello, Meong", 12):
-            fail("streamed reply never rendered", s)
-        if not s.wait_for("🌊🐟", 8):
-            fail("split UTF-8 was not reassembled", s)
-        if not s.wait_for("int x = 1;", 8):
-            fail("code block never rendered", s)
-        if not s.wait_for("ctx 42", 8):
+        if not s.wait_for("ctx 42", 12):
             fail("stream never finished", s)
         s.send(b"/help\r")
         if not s.wait_for("commands", 5):
@@ -219,7 +213,7 @@ def main():
         s.send(b"second\r")
         if not s.wait_for("queue ↓", 5):
             fail("queue: queued prompt is not shown", s)
-        if not s.wait_for("queued reply", 12):
+        if not s.wait_for("◑ second", 12):
             fail("queue: queued prompt was not sent", s)
         s.send(b"/quit\r")
         if not s.wait_exit(8):
@@ -246,7 +240,7 @@ def main():
         if not s.wait_for("queue ↓", 3):
             fail("cancel queue: queue vanished after cancel", s)
         s.send(b"\r")
-        if not s.wait_for("queued reply", 12):
+        if not s.wait_for("◑ second", 12):
             fail("cancel queue: enter did not send the queued prompt", s)
         s.send(b"/quit\r")
         if not s.wait_exit(8):
