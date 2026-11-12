@@ -17,6 +17,33 @@ static jsmntok_t *toks(const JDoc *d) {
     return (jsmntok_t *)d->tok;
 }
 
+/*
+ * skip[i] is the first token after i's subtree.  jsmn sizes already describe
+ * the recursion: a container counts its direct children, and an object key
+ * counts the one value that follows it, so skipping size children whose own
+ * skip is known covers exactly what the old recursive walk did.
+ */
+static int *build_skip(const jsmntok_t *t, int n) {
+    int *skip = xmalloc(((size_t)n + 1) * sizeof *skip);
+    skip[n] = n;
+    for (int i = n - 1; i >= 0; i--) {
+        int j = i + 1;
+        for (int k = 0; k < t[i].size && j < n; k++) {
+            j = skip[j];
+        }
+        skip[i] = j;
+    }
+    return skip;
+}
+
+/*
+ * TODO(perf): every SSE event still costs two allocations (tokens + skip)
+ * and a full jsmn pass.  jsmn_parse dominates the streaming profile and the
+ * allocator is the next cheap win: one allocation for tok+skip and a
+ * reusable JDoc across events.  A "content":" fast scanner is the bigger
+ * win but needs escape/null guards plus a partial-parse fallback -- land
+ * the allocator change first.
+ */
 int jdoc_parse(JDoc *d, const char *text, size_t len) {
     memset(d, 0, sizeof *d);
     int cap = 256;
@@ -38,6 +65,7 @@ int jdoc_parse(JDoc *d, const char *text, size_t len) {
             return -1;
         }
         d->tok = t;
+        d->skip = build_skip(t, r);
         d->ntok = r;
         d->cap = cap;
         d->text = text;
@@ -47,22 +75,15 @@ int jdoc_parse(JDoc *d, const char *text, size_t len) {
 
 void jdoc_free(JDoc *d) {
     free(d->tok);
+    free(d->skip);
     memset(d, 0, sizeof *d);
 }
 
 static int jskip(const JDoc *d, int i) {
-    jsmntok_t *t = toks(d);
     if (i < 0 || i >= d->ntok) {
         return d->ntok;
     }
-    int j = i + 1;
-    for (int k = 0; k < t[i].size; k++) {
-        j = jskip(d, j);
-        if (j >= d->ntok) {
-            return d->ntok;
-        }
-    }
-    return j;
+    return d->skip[i];
 }
 
 int jdoc_root(const JDoc *d) {
@@ -160,11 +181,14 @@ int jstring(const JDoc *d, int tok, Buf *out) {
     int n = t->end - t->start;
     int i = 0;
     while (i < n) {
-        char c = s[i];
-        if (c != '\\') {
-            buf_addc(out, c);
-            i++;
-            continue;
+        const char *bs = memchr(s + i, '\\', (size_t)(n - i));
+        int plain = bs ? (int)(bs - (s + i)) : n - i;
+        if (plain > 0) {
+            buf_add(out, s + i, (size_t)plain);
+            i += plain;
+        }
+        if (!bs) {
+            break;
         }
         if (i + 1 >= n) {
             break;

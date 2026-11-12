@@ -439,18 +439,23 @@ static void process_sse_line(Stream *s) {
 }
 
 static void sse_bytes(Stream *s, const char *p, size_t n) {
-    for (size_t i = 0; i < n && s->state != ST_DONE && s->state != ST_ERROR;
-         i++) {
-        char c = p[i];
-        if (c == '\n') {
-            process_sse_line(s);
-        } else {
-            if (s->line.len + 1 > LINE_MAX) {
+    size_t off = 0;
+    while (off < n && s->state != ST_DONE && s->state != ST_ERROR) {
+        const char *nl = memchr(p + off, '\n', n - off);
+        size_t run = nl ? (size_t)(nl - (p + off)) : n - off;
+        if (run > 0) {
+            if (s->line.len + run > LINE_MAX) {
                 set_error(s, "response line is too large");
                 return;
             }
-            buf_addc(&s->line, c);
+            buf_add(&s->line, p + off, run);
+            off += run;
         }
+        if (!nl) {
+            return;
+        }
+        process_sse_line(s);
+        off++;
     }
 }
 

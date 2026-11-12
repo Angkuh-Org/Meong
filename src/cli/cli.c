@@ -167,6 +167,8 @@ typedef struct {
 
 static int cli_on_event(void *ud, const char *data, size_t len) {
     CliStream *c = ud;
+    /* TODO(perf): reuse a JDoc and Buf pair on CliStream instead of
+     * allocating per event (see the allocator note above jdoc_parse). */
     JDoc d;
     if (jdoc_parse(&d, data, len) != 0) {
         return 0;

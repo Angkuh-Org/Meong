@@ -65,6 +65,28 @@ static void wrap_para(App *a, int mi, const char *s, size_t len, size_t base,
         int col = 0;
         size_t last_space = (size_t)-1;
         while (i < len) {
+            unsigned char ch = (unsigned char)s[i];
+            if (ch >= 32 && ch < 127) {
+                int room = width - col;
+                size_t j = i;
+                while (j < len && room > 0) {
+                    unsigned char b = (unsigned char)s[j];
+                    if (b < 32 || b >= 127) {
+                        break;
+                    }
+                    if (b == ' ' && col + (int)(j - i) + 1 < width) {
+                        last_space = j;
+                    }
+                    j++;
+                    room--;
+                }
+                col += (int)(j - i);
+                i = j;
+                if (i < len && room == 0) {
+                    break;
+                }
+                continue;
+            }
             wchar_t wc;
             int bytes = utf8_next(s + i, len - i, &wc);
             if (bytes <= 0) {
@@ -201,11 +223,27 @@ static void layout_message(App *a, int mi) {
     }
 }
 
+/*
+ * TODO(perf): streaming only grows the last open line, but this still
+ * rewraps the whole current message on every redraw (a full 200 KB wrap is
+ * 1.27 ms).  Cache a per-message layout cursor and rebuild just the tail
+ * once a message outgrows a few hundred KB.
+ */
 static void layout_build(App *a) {
-    a->nlines = 0;
-    for (int i = 0; i < a->nmsg; i++) {
+    int keep = a->layout_from;
+    if (keep < 0) {
+        keep = 0;
+    }
+    if (keep > a->nmsg) {
+        keep = a->nmsg;
+    }
+    while (a->nlines > 0 && a->lines[a->nlines - 1].msg >= keep) {
+        a->nlines--;
+    }
+    for (int i = keep; i < a->nmsg; i++) {
         layout_message(a, i);
     }
+    a->layout_from = a->nmsg;
     a->layout_dirty = 0;
     a->last_layout = now_sec();
 }
@@ -218,6 +256,25 @@ int draw_slice(int y, int x, const char *s, int off, int len, int maxx,
     int end = off + len;
     wattrset(stdscr, (attr_t)pair | (attr_t)attr);
     while (i < end && cx <= maxx) {
+        unsigned char ch = (unsigned char)s[i];
+        if (ch >= 32 && ch < 127) {
+            int j = i;
+            while (j < end && (unsigned char)s[j] >= 32 &&
+                   (unsigned char)s[j] < 127) {
+                j++;
+            }
+            int run = j - i;
+            if (cx + run - 1 > maxx) {
+                run = maxx - cx + 1;
+            }
+            if (run > 0) {
+                mvaddnstr(y, cx, s + i, run);
+                cx += run;
+                col += run;
+                i += run;
+            }
+            continue;
+        }
         wchar_t wc;
         int n = utf8_next(s + i, (size_t)(end - i), &wc);
         if (n <= 0) {
@@ -278,7 +335,10 @@ void draw_chat(App *a, int rows, int cols) {
         }
     }
     if (need_layout) {
-        a->layout_width = text_width;
+        if (a->layout_width != text_width) {
+            a->layout_width = text_width;
+            a->layout_from = 0;
+        }
         layout_build(a);
     }
     if (a->follow) {

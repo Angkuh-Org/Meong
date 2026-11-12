@@ -44,6 +44,7 @@ static void refresh_models(App *a) {
         snprintf(buf, sizeof buf, "refreshed %d models", n);
         msg_set(&a->msgs[idx], buf);
         a->layout_dirty = 1;
+        a->layout_from = 0;
         a->dirty = 1;
         picker_open(a);
     } else {
@@ -51,6 +52,7 @@ static void refresh_models(App *a) {
         m->role = ROLE_ERROR;
         msg_set(m, err);
         a->layout_dirty = 1;
+        a->layout_from = 0;
         a->dirty = 1;
     }
 }

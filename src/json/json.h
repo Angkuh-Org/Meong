@@ -14,6 +14,7 @@ enum {
 
 typedef struct {
     void *tok;
+    int *skip;
     int ntok;
     int cap;
     const char *text;
