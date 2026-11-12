@@ -36,11 +36,11 @@ across distros.
 
 `--version` prints `APP_VERSION`. Release builds pass the tag through
 `MEONG_VERSION`, which `build.sh` compiles into the binary; local builds keep
-the `0.1.0` default from `src/app/app.h`.
+the `0.1.1` default from `src/app/app.h`.
 
 ```sh
-MEONG_VERSION=v0.1.0 ./tests/test.sh
-test "$(./build/meong --version)" = "Meong v0.1.0"
+MEONG_VERSION=v0.1.1 ./tests/test.sh
+test "$(./build/meong --version)" = "Meong v0.1.1"
 ```
 
 The workflow refuses a tag whose binary reports a different version, and fails
@@ -49,7 +49,7 @@ if the binary requires glibc newer than 2.35.
 ## Rehearsal
 
 ```sh
-export MEONG_VERSION=v0.1.0
+export MEONG_VERSION=v0.1.1
 ./build.sh
 ./build/meong --version
 ./tests/test.sh

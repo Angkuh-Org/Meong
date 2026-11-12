@@ -89,6 +89,8 @@ static int build_chat_body(App *a, Buf *b, int *trimmed_out) {
 
 static int on_stream_event(void *ud, const char *data, size_t len) {
     App *a = ud;
+    /* TODO(perf): reuse a JDoc and Buf pair on App instead of allocating
+     * per event (see the allocator note above jdoc_parse in json.c). */
     JDoc d;
     if (jdoc_parse(&d, data, len) != 0) {
         return 0;
@@ -145,6 +147,9 @@ static int on_stream_event(void *ud, const char *data, size_t len) {
     }
     jdoc_free(&d);
     a->layout_dirty = 1;
+    if (a->gen_idx >= 0 && a->layout_from > a->gen_idx) {
+        a->layout_from = a->gen_idx;
+    }
     a->dirty = 1;
     if (!a->follow) {
         a->new_below = 1;
@@ -182,6 +187,7 @@ int start_generation(App *a) {
         a->streaming = 0;
         a->stream = NULL;
         a->layout_dirty = 1;
+        a->layout_from = 0;
         a->dirty = 1;
         buf_free(&body);
         return -1;
@@ -208,6 +214,7 @@ int finish_generation(App *a, int ok) {
         a->stream = NULL;
         a->streaming = 0;
         a->layout_dirty = 1;
+        a->layout_from = 0;
         a->dirty = 1;
         return 0;
     }
@@ -292,6 +299,7 @@ int finish_generation(App *a, int ok) {
     a->stream = NULL;
     a->streaming = 0;
     a->layout_dirty = 1;
+    a->layout_from = 0;
     a->dirty = 1;
     if (!a->follow) {
         a->new_below = 1;
@@ -321,6 +329,7 @@ void cancel_generation(App *a) {
     a->stream = NULL;
     a->streaming = 0;
     a->layout_dirty = 1;
+    a->layout_from = 0;
     a->dirty = 1;
     if (!a->follow) {
         a->new_below = 1;

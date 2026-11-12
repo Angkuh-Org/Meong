@@ -50,6 +50,23 @@ picker. The last selected model is remembered in
 (`cc/…`, `opencode/…`, `kilo/…`, `bob/…`, `mistral/…`); the picker handles that
 for you.
 
+## Performance
+
+v0.1.1 removes the per-byte `buf_addc` calls in the SSE decoder and JSON
+unescape, and stops re-wrapping the whole transcript on every streaming
+redraw. Release builds of both trees, same mock workload:
+
+![Meong v0.1.0 vs v0.1.1 benchmark](docs/images/profile-v0.1.0-vs-v0.1.1.png)
+
+- streaming CPU: 69% fewer instructions, 3.23× less work per 1 MB
+- streaming wall clock: 51% less time, 2.04× faster per 8 MB (median of 9)
+- layout redraw with 201 messages: 99.8% less, 460× less work
+- binary: 78,128 B → 78,792 B (+664 B)
+
+These are loopback instruction ratios, not gateway latency; the wall-clock
+row uses the same local mock on both sides. Method and raw numbers:
+[`docs/perf.md`](docs/perf.md).
+
 ## Keys
 
 | Key | Action |
