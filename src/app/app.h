@@ -9,7 +9,9 @@
 #include "util/util.h"
 
 #define APP_NAME "Meong"
+#ifndef APP_VERSION
 #define APP_VERSION "0.1.0"
+#endif
 #define DEFAULT_MODEL "cc/deepseek/deepseek-v4.1-flash"
 
 #define MEONG_INPUT_MAX 2048

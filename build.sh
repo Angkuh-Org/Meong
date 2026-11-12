@@ -33,6 +33,9 @@ NC_LIBS=$(pkg-config --libs ncursesw 2>/dev/null || echo "-lncursesw")
 CFLAGS="-std=c11 -O2 -pipe -Wall -Wextra -Wshadow -Wno-unused-parameter"
 CFLAGS="$CFLAGS -ffunction-sections -fdata-sections"
 CFLAGS="$CFLAGS -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc"
+if [ -n "${MEONG_VERSION:-}" ]; then
+    CFLAGS="$CFLAGS -DAPP_VERSION=\"$MEONG_VERSION\""
+fi
 if [ -n "${DEBUG:-}" ]; then
     CFLAGS="$CFLAGS -g -O0"
     LDFLAGS=""

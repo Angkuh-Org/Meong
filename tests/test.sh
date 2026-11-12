@@ -163,6 +163,22 @@ if command -v tmux >/dev/null 2>&1; then
         i=$((i + 1))
         sleep 0.05
     done
+    tmux send-keys -l -t "$TMUX_SESS" 'hello'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    for needle in 'Hello, Meong' '🌊🐟' 'int x = 1;' 'ctx 42'; do
+        i=0
+        while [ "$i" -lt 100 ]; do
+            if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+                grep -Fq "$needle"; then
+                break
+            fi
+            i=$((i + 1))
+            sleep 0.05
+        done
+        tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq "$needle" || fail "streamed reply missing: $needle"
+    done
+    ok "streamed reply rendered on screen"
     tmux send-keys -l -t "$TMUX_SESS" 'aku'
     found=0
     i=0
