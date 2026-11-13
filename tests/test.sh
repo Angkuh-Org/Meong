@@ -385,6 +385,176 @@ if command -v tmux >/dev/null 2>&1; then
     tmux send-keys -t "$TMUX_SESS" C-c
     tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
     TMUX_SESS=""
+
+    TMUX_SESS="Meong-mouse-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 110 -y 40 \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/split"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'hello'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ctx 42'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    sleep 0.2
+
+    click_at() {
+        tmux send-keys -l -t "$TMUX_SESS" \
+            "$(printf '\033[<0;8;%dM' "$1")"
+        tmux send-keys -l -t "$TMUX_SESS" \
+            "$(printf '\033[<0;8;%dm' "$1")"
+    }
+
+    tmux capture-pane -p -t "$TMUX_SESS" |
+        grep -Fq '○ thinking ▸' \
+        || fail "thinking block did not fold after the reply finished"
+    tmux send-keys -t "$TMUX_SESS" C-o
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'thinking a little'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq '○ thinking ▾' \
+        || fail "ctrl-o did not expand the thinking block"
+    printf '%s\n' "$pane" | grep -Fq '┆ thinking a little' \
+        || fail "reasoning gutter disappeared after expanding"
+
+    reason_row=$(printf '%s\n' "$pane" | grep -n 'thinking a little' |
+        head -1 | cut -d: -f1)
+    click_at "$reason_row"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if ! tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'thinking a little'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    if tmux capture-pane -p -t "$TMUX_SESS" |
+        grep -Fq 'thinking a little'; then
+        fail "reasoning text stayed visible after folding"
+    fi
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq '○ thinking ▸' \
+        || fail "clicking a reasoning line did not fold the block"
+
+    head_row=$(tmux capture-pane -p -t "$TMUX_SESS" |
+        grep -n '○ thinking' | head -1 | cut -d: -f1)
+    click_at "$head_row"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'thinking a little'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    answer_row=$(tmux capture-pane -p -t "$TMUX_SESS" |
+        grep -n '✦ Hello' | head -1 | cut -d: -f1)
+    [ -n "$answer_row" ] || fail "answer row is missing"
+    click_at "$answer_row"
+    sleep 0.2
+    tmux capture-pane -p -t "$TMUX_SESS" |
+        grep -Fq 'thinking a little' \
+        || fail "clicking the answer folded the reasoning block"
+
+    tmux send-keys -t "$TMUX_SESS" C-o
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if ! tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'thinking a little'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq '○ thinking ▸' \
+        || fail "ctrl-o did not fold the thinking block"
+    ok "mouse click and ctrl-o fold and unfold reasoning"
+
+    tmux send-keys -t "$TMUX_SESS" C-u
+    tmux send-keys -l -t "$TMUX_SESS" '/model'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'choose a model'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    before=$(tmux capture-pane -p -t "$TMUX_SESS" |
+        grep -F 'esc' | head -1)
+    tmux send-keys -l -t "$TMUX_SESS" "$(printf '\033[<64;20;12M')"
+    sleep 0.2
+    after=$(tmux capture-pane -p -t "$TMUX_SESS" |
+        grep -F 'esc' | head -1)
+    [ -n "$before" ] && [ "$before" != "$after" ] \
+        || fail "mouse wheel did not scroll the picker"
+    ok "mouse wheel still scrolls the picker"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    TMUX_SESS="Meong-reasononly-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 110 -y 40 \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/reasononly --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'hello'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'tok ·'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    sleep 0.2
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq '○ thinking ▾' \
+        || fail "reasoning-only reply folded its only content"
+    printf '%s\n' "$pane" | grep -Fq '┆ thinking a little' \
+        || fail "reasoning-only reply lost its reasoning text"
+    printf '%s\n' "$pane" | grep -Fq 'with no answer' \
+        || fail "reasoning-only reply lost its second chunk"
+    ok "reasoning-only reply stays unfolded"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
 else
     printf 'skip - tmux not found, screen check for the input gap skipped\n'
 fi

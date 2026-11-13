@@ -54,6 +54,14 @@ static inline const char *sym_think(const App *a) {
     return a->unicode ? "○" : "o";
 }
 
+static inline const char *sym_fold_closed(const App *a) {
+    return a->unicode ? "▸" : ">";
+}
+
+static inline const char *sym_fold_open(const App *a) {
+    return a->unicode ? "▾" : "v";
+}
+
 static inline const char *sym_status(const App *a) {
     return a->unicode ? "●" : "*";
 }
@@ -97,6 +105,8 @@ int chat_height(const App *a, int rows);
 void draw_scrollbar(App *a, int y0, int h, int rows, int cols);
 void draw_splash(App *a, int y0, int h, int cols);
 void draw_chat(App *a, int rows, int cols);
+int chat_click(App *a, int y);
+void chat_toggle_reason(App *a);
 int draw_slice(int y, int x, const char *s, int off, int len, int maxx,
                int pair, int attr, int *endx);
 

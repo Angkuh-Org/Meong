@@ -274,6 +274,9 @@ int finish_generation(App *a, int ok) {
             m->role = ROLE_ERROR;
             msg_set(m, "the model returned an empty reply");
         } else {
+            if (m->rlen > 0 && m->len > 0 && !m->reason_user_set) {
+                m->reason_collapsed = 1;
+            }
             m->elapsed = now_sec() - a->gen_start;
             m->ptok = a->gen_ptok;
             m->ctok = a->gen_ctok;

@@ -124,6 +124,7 @@ int ui_init(App *a) {
     curs_set(1);
     if (a->mouse) {
         mousemask(ALL_MOUSE_EVENTS, NULL);
+        /* 0 disables click resolution, so clicks arrive as press events */
         mouseinterval(0);
     }
     signal(SIGTERM, term_signal);
@@ -578,6 +579,9 @@ void ui_draw(App *a) {
         mvhline(y, 0, ' ', cols);
     }
     a->cursor_on = 0;
+    a->chat_y0 = -1;
+    a->chat_top = 0;
+    a->chat_end = 0;
     if (rows < 10 || cols < 36) {
         const char *msg = "terminal too small";
         if (rows > 0 && cols > 0) {

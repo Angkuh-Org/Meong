@@ -295,7 +295,7 @@ void help_draw(App *a, int rows, int cols) {
         "  ctrl-g / ctrl-t jump to bottom / top",
         "  ctrl-c         cancel a reply, or quit when idle",
         "  ctrl-l         redraw",
-        "",
+        "  ctrl-o/click   expand or fold reasoning",
         "press any key to close",
     };
     int n = (int)(sizeof lines / sizeof lines[0]);

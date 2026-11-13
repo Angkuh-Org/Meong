@@ -10,7 +10,7 @@
 
 #define APP_NAME "Meong"
 #ifndef APP_VERSION
-#define APP_VERSION "0.1.1"
+#define APP_VERSION "0.2.0"
 #endif
 #define DEFAULT_MODEL "cc/deepseek/deepseek-v4.1-flash"
 
@@ -38,6 +38,8 @@ typedef struct {
     int streaming;
     int stopped;
     int has_stats;
+    int reason_collapsed;
+    int reason_user_set;
     long ptok;
     long ctok;
     double elapsed;
@@ -84,6 +86,9 @@ typedef struct {
     int follow;
     int top;
     int new_below;
+    int chat_y0;
+    int chat_top;
+    int chat_end;
     RLine *lines;
     int nlines;
     int linecap;
