@@ -71,6 +71,14 @@ static void picker_key(App *a, wint_t wch, int special) {
     a->dirty = 1;
 }
 
+static void pet_meong(App *a) {
+    a->pet_count++;
+    a->pet_open = 1;
+    a->help_open = 0;
+    a->picker_open = 0;
+    a->dirty = 1;
+}
+
 static void handle_mouse(App *a) {
     MEVENT ev;
     if (getmouse(&ev) != OK) {
@@ -88,6 +96,19 @@ static void handle_mouse(App *a) {
         down = 1;
     }
 #endif
+    if (a->pet_open) {
+        if (ev.bstate & BUTTON1_PRESSED) {
+            if (a->pet_y0 >= 0 && ev.y >= a->pet_y0 &&
+                ev.y <= a->pet_y1 && ev.x >= a->pet_x0 &&
+                ev.x <= a->pet_x1) {
+                pet_meong(a);
+            } else {
+                a->pet_open = 0;
+                a->dirty = 1;
+            }
+        }
+        return;
+    }
     if (a->help_open) {
         if (ev.bstate & BUTTON1_PRESSED) {
             a->help_open = 0;
@@ -132,6 +153,11 @@ static void handle_mouse(App *a) {
     } else if (down) {
         chat_scroll(a, -3);
     } else if (ev.bstate & BUTTON1_PRESSED) {
+        if (a->brand_y >= 0 && ev.y == a->brand_y &&
+            ev.x >= a->brand_x0 && ev.x < a->brand_x1) {
+            pet_meong(a);
+            return;
+        }
         chat_click(a, ev.y);
     }
 }
@@ -145,6 +171,15 @@ static void handle_key(App *a, wint_t wch, int special) {
         }
         if (wch == KEY_MOUSE) {
             handle_mouse(a);
+            return;
+        }
+        if (wch == KEY_F(1)) {
+            pet_meong(a);
+            return;
+        }
+        if (a->pet_open) {
+            a->pet_open = 0;
+            a->dirty = 1;
             return;
         }
         if (a->help_open) {
@@ -233,7 +268,10 @@ static void handle_key(App *a, wint_t wch, int special) {
         return;
     }
     if (wch == 3) {
-        if (a->help_open) {
+        if (a->pet_open) {
+            a->pet_open = 0;
+            a->dirty = 1;
+        } else if (a->help_open) {
             a->help_open = 0;
             a->dirty = 1;
         } else if (a->picker_open) {
@@ -244,6 +282,10 @@ static void handle_key(App *a, wint_t wch, int special) {
             a->quit = 1;
         }
         return;
+    }
+    if (a->pet_open) {
+        a->pet_open = 0;
+        a->dirty = 1;
     }
     if (a->help_open) {
         a->help_open = 0;

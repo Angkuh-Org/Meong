@@ -21,7 +21,7 @@ back to `-lncursesw`).
 ./tests/test.sh         # offline mock + pty/tmux TUI tests
 ```
 
-The binary is ~91 KB stripped with lld; GNU bfd defaults to 64K
+The binary is ~93 KB stripped with lld; GNU bfd defaults to 64K
 max-page-size on aarch64 and links ~133 KB.
 
 Release binaries are built on Ubuntu 22.04 and need glibc 2.35+,
@@ -81,6 +81,7 @@ row uses the same local mock on both sides. Method and raw numbers:
 | `ctrl-d` | quit on empty input |
 | `ctrl-l` | redraw |
 | `ctrl-o` | expand or fold the last reasoning block |
+| `f1` / click `Meong` | pet the cat (live cat card) |
 | `up` / `down` | input history |
 | mouse wheel | scroll |
 | click / tap thinking | expand or fold reasoning |
@@ -122,6 +123,9 @@ The gateway does not authenticate inbound requests. Keep PAIG on loopback.
 - Transport is a hand-rolled nonblocking HTTP/1.1 client, one connection per
   request. It handles chunked transfer, SSE `data:` frames, `[DONE]`, and plain
   JSON error bodies that arrive without SSE framing.
+- Clicking `Meong` (or `f1`) pets the cat: the card reacts, counts pets, and
+  shows the live model, message and token totals, and mood. Typing closes it
+  and still reaches the composer.
 - `reasoning_content` / `reasoning` deltas are shown dimmed above the answer
   while streaming, then fold when the reply finishes; a cancelled reply stays
   open. Click or tap the thinking line — or any reasoning line — to expand or

@@ -8,8 +8,8 @@
 
 #define SLASH_DCOL 17
 
-static void panel_frame(App *a, int px, int py, int w, int h,
-                        const char *title, int shadow) {
+void panel_frame(App *a, int px, int py, int w, int h,
+                 const char *title, int shadow) {
     if (shadow && a->color && COLORS >= 256) {
         wattrset(stdscr, pair_attr(a, P_SHADOW));
         for (int y = py + 1; y <= py + h; y++) {
@@ -116,6 +116,7 @@ void picker_filter_append(App *a, char c) {
 void picker_open(App *a) {
     a->picker_open = 1;
     a->help_open = 0;
+    a->pet_open = 0;
     a->picker_filter[0] = '\0';
     a->picker_filter_len = 0;
     a->picker_sel = 0;
@@ -301,7 +302,7 @@ void help_draw(App *a, int rows, int cols) {
         "  ctrl-g / ctrl-t jump to bottom / top",
         "  ctrl-c         cancel a reply, or quit when idle",
         "  ctrl-l         redraw",
-        "  ctrl-o/click   expand or fold reasoning",
+        "  ctrl-o/click   fold reasoning; f1 pets Meong",
         "press any key to close",
     };
     int n = (int)(sizeof lines / sizeof lines[0]);

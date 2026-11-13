@@ -11,7 +11,7 @@
 
 #define APP_NAME "Meong"
 #ifndef APP_VERSION
-#define APP_VERSION "0.3.0"
+#define APP_VERSION "0.4.0"
 #endif
 #define DEFAULT_MODEL "cc/deepseek/deepseek-v4.1-flash"
 
@@ -76,6 +76,8 @@ typedef struct {
     int *pick_matches;
     int pick_n;
     int help_open;
+    int pet_open;
+    int pet_count;
     int initial_picker;
     int cmd_sel;
     int cmd_hide;
@@ -106,6 +108,13 @@ typedef struct {
     int chat_y0;
     int chat_top;
     int chat_end;
+    int brand_y;
+    int brand_x0;
+    int brand_x1;
+    int pet_y0;
+    int pet_y1;
+    int pet_x0;
+    int pet_x1;
     RLine *lines;
     int nlines;
     int linecap;

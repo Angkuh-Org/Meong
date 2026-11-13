@@ -112,6 +112,8 @@ int chat_click(App *a, int y);
 void chat_toggle_reason(App *a);
 int draw_slice(int y, int x, const char *s, int off, int len, int maxx,
                int pair, int attr, int *endx);
+void panel_frame(App *a, int px, int py, int w, int h,
+                 const char *title, int shadow);
 
 void picker_open(App *a);
 void picker_close(App *a);
@@ -120,6 +122,7 @@ void picker_filter_clear(App *a);
 void picker_filter_append(App *a, char c);
 void picker_draw(App *a, int rows, int cols);
 void help_draw(App *a, int rows, int cols);
+void pet_draw(App *a, int rows, int cols);
 void slash_draw(App *a, int rows, int cols, const int *idx, int n);
 
 void history_free(App *a);

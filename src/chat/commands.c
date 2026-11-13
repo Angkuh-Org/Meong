@@ -72,6 +72,7 @@ void run_command(App *a, const char *cmdline) {
     } else if (strcmp(cmd, "help") == 0 || strcmp(cmd, "?") == 0) {
         a->help_open = 1;
         a->picker_open = 0;
+        a->pet_open = 0;
         a->dirty = 1;
     } else if (strcmp(cmd, "model") == 0) {
         if (arg && *arg) {
@@ -200,7 +201,7 @@ int slash_open_list(const App *a, int *idx, int cap) {
     if (a->ilen == 0 || a->input[0] != L'/') {
         return 0;
     }
-    if (a->cmd_hide || a->picker_open || a->help_open) {
+    if (a->cmd_hide || a->picker_open || a->help_open || a->pet_open) {
         return 0;
     }
     int n = slash_matches(a, idx, cap);
