@@ -275,6 +275,47 @@ long long jint(const JDoc *d, int tok, long long def) {
     return v;
 }
 
+int jbool(const JDoc *d, int tok, int def) {
+    if (tok < 0 || tok >= d->ntok) {
+        return def;
+    }
+    jsmntok_t *t = &toks(d)[tok];
+    int n = t->end - t->start;
+    if (t->type != JSMN_PRIMITIVE || n <= 0) {
+        return def;
+    }
+    if (n == 4 && memcmp(d->text + t->start, "true", 4) == 0) {
+        return 1;
+    }
+    if (n == 5 && memcmp(d->text + t->start, "false", 5) == 0) {
+        return 0;
+    }
+    return def;
+}
+
+double jdouble(const JDoc *d, int tok, double def) {
+    if (tok < 0 || tok >= d->ntok) {
+        return def;
+    }
+    jsmntok_t *t = &toks(d)[tok];
+    if (t->type != JSMN_PRIMITIVE) {
+        return def;
+    }
+    int n = t->end - t->start;
+    if (n <= 0 || n > 31) {
+        return def;
+    }
+    char tmp[32];
+    memcpy(tmp, d->text + t->start, (size_t)n);
+    tmp[n] = '\0';
+    char *endp = NULL;
+    double v = strtod(tmp, &endp);
+    if (!endp || *endp != '\0') {
+        return def;
+    }
+    return v;
+}
+
 /*
  * The fast path below reimplements just enough of the OpenAI delta shape to
  * avoid jsmn on the common SSE frame.  It never guesses: every construct it

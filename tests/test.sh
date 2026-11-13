@@ -534,6 +534,117 @@ if command -v tmux >/dev/null 2>&1; then
     tmux send-keys -t "$TMUX_SESS" C-u
     ok "typing closes the pet card without eating the key"
 
+    click_rc 1 21
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'model capabilities'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq 'model capabilities' \
+        || fail "clicking the header model did not open its capability card"
+    printf '%s\n' "$pane" | grep -Fq 'mock/split' \
+        || fail "capability card does not name the current model"
+    printf '%s\n' "$pane" | grep -Eq 'context +131,072' \
+        || fail "capability card has the wrong context window"
+    printf '%s\n' "$pane" | grep -Eq 'max output +65,536' \
+        || fail "capability card has the wrong output limit"
+    printf '%s\n' "$pane" | grep -Fq 'not reported: vision' \
+        || fail "capability card did not summarize the missing vision flag"
+    if printf '%s\n' "$pane" | grep -Eq 'vision +(yes|no)'; then
+        fail "capability card invented a vision answer"
+    fi
+    printf '%s\n' "$pane" | grep -Eq 'tools +yes' \
+        || fail "capability card lost the tool flag"
+    printf '%s\n' "$pane" | grep -Eq 'reasoning +no' \
+        || fail "capability card lost the reasoning flag"
+    printf '%s\n' "$pane" | grep -Eq 'prompt cache +yes' \
+        || fail "capability card lost the prompt-cache flag"
+    printf '%s\n' "$pane" | grep -Eq 'cost +free' \
+        || fail "capability card lost the cost line"
+    printf '%s\n' "$pane" | grep -Fq '~ models.dev estimate for missing fields' \
+        || fail "capability card lost the estimate marker"
+    ok "clicking the header model opens its capability card"
+
+    click_rc 20 5
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if ! tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'model capabilities'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    if tmux capture-pane -p -t "$TMUX_SESS" |
+        grep -Fq 'model capabilities'; then
+        fail "clicking outside the capability card did not close it"
+    fi
+    ok "clicking outside the capability card closes it"
+
+    tmux send-keys -t "$TMUX_SESS" F2
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'model capabilities'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'model capabilities' \
+        || fail "f2 did not open the capability card"
+    tmux send-keys -t "$TMUX_SESS" Escape
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if ! tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'model capabilities'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'model capabilities' \
+        && fail "escape did not close the capability card"
+    ok "f2 opens the capability card; escape closes it"
+
+    tmux send-keys -t "$TMUX_SESS" F2
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'model capabilities'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'h'
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if ! tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'model capabilities'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq '❯ h' \
+        || fail "typing closed the capability card and ate the first key"
+    tmux send-keys -t "$TMUX_SESS" C-u
+    ok "typing closes the capability card without eating the key"
+
+    head -1 "$TMP/cache/meong/models" | grep -Fq '#meong-models-v3' \
+        || fail "model cache is not v3"
+    awk -F '\t' '$1=="mock/split" && $2==131072 && $3==65536 &&
+        $4==-1 && $5==1 && $6==0 && $7==1 && $8==0 && $9==0 && $10==1 {found=1}
+        END {exit found ? 0 : 1}' "$TMP/cache/meong/models" \
+        || fail "model cache lost the capability row"
+    ok "model cache persists capabilities"
+
     tmux send-keys -l -t "$TMUX_SESS" 'hello'
     tmux send-keys -t "$TMUX_SESS" Enter
     i=0
@@ -1130,6 +1241,78 @@ if command -v tmux >/dev/null 2>&1; then
     done
     tmux has-session -t "$TMUX_SESS" 2>/dev/null \
         && fail "short slash session did not exit"
+    TMUX_SESS=""
+
+    LEGACY="$TMP/legacy-cache"
+    mkdir -p "$LEGACY"
+    printf 'mock/plain\nmock/split\n' >"$LEGACY/models"
+    TMUX_SESS="Meong-legacy-$$"
+    tmux new-session -d -s "$TMUX_SESS" -x 110 -y 40 \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CACHE_DIR='$LEGACY' \
+         '$BIN_ABS' --url '$URL' --model mock/split"
+    i=0
+    while [ "$i" -lt 200 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '| split'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    head -1 "$LEGACY/models" | grep -Fq '#meong-models-v3' \
+        || fail "legacy cache was not migrated to v3"
+    click_rc 1 21
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'model capabilities'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Eq 'context +131,072' \
+        || fail "legacy cache migration did not load capabilities"
+    ok "legacy model cache migrates to v3 with capabilities"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    V2CACHE="$TMP/v2-cache"
+    mkdir -p "$V2CACHE"
+    printf '#meong-models-v2\nmock/plain\t-1\t-1\t-1\t-1\t-1\t-1\t-1\t-1\nmock/split\t131072\t65536\t-1\t1\t0\t1\t0\t0\n' \
+        >"$V2CACHE/models"
+    TMUX_SESS="Meong-v2-$$"
+    tmux new-session -d -s "$TMUX_SESS" -x 110 -y 40 \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CACHE_DIR='$V2CACHE' \
+         '$BIN_ABS' --url '$URL' --model mock/split"
+    i=0
+    while [ "$i" -lt 200 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '| split'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    head -1 "$V2CACHE/models" | grep -Fq '#meong-models-v3' \
+        || fail "v2 cache was not migrated to v3"
+    click_rc 1 21
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'model capabilities'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" |
+        grep -Fq '~ models.dev estimate for missing fields' \
+        || fail "v2 cache migration did not load enriched capabilities"
+    ok "v2 model cache migrates to v3 with estimates"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
     TMUX_SESS=""
 else
     printf 'skip - tmux not found, screen check for the input gap skipped\n'

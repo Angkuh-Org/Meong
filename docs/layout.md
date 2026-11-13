@@ -27,15 +27,16 @@ which seeds the `App`, resolves the endpoint, loads the model list, and picks
 the initial model. `tui_run()` is the event loop: read a key, tick the active
 stream, redraw dirty frames on a 30 ms throttle (50 ms ticks while streaming),
 and animate the spinner at 10 Hz. `handle_key()` routes keys to the composer,
-scrolling, the slash menu, the picker, the help overlay, or the pet card;
-`handle_mouse()` owns the header brand box, the pet-card hit-box, and the chat
-click.
+scrolling, the slash menu, the picker, the help overlay, the pet card, or the
+model capability card; `handle_mouse()` owns the header brand box, the model
+hit-box, the pet-card hit-box, and the chat click.
 
 ## `src/app/`
 
-`App` in `app.h` is the single mutable state object: messages, model list,
-picker, help, and pet-card state, the active stream, the prompt queue, the
-scroll/layout cache, composer text, history, and theme flags. `app.c` owns
+`App` in `app.h` is the single mutable state object: messages, model list and
+per-model capabilities, picker, help, pet-card and capability-card state, the
+active stream, the prompt queue, the scroll/layout cache, composer text,
+history, and theme flags. `app.c` owns
 message and queue storage and the config/cache directory rules —
 `MEONG_CONFIG_DIR`,
 `XDG_CONFIG_HOME`, then `~/.config/meong` (and the cache equivalents).
@@ -47,9 +48,12 @@ message and queue storage and the config/cache directory rules —
 `choices[0].message.content` (or `choices[0].text`) plus usage tokens,
 `extract_api_error()` digs `error.message` or `error.detail`, and
 `drive_stream()` polls a stream to completion under a total timeout. `models.c`
-fetches `/v1/models` (relative to the configured base), sorts and caches the
-ids, and picks a default in this order: exact `DEFAULT_MODEL`, the first `cc/`
-id, the first entry.
+fetches `/v1/models` (relative to the configured base), parses each entry's
+`capabilities` object (tri-state: absent, no, yes) alongside the id, sorts and
+caches the pairs in `models` with a `#meong-models-v3` header, and picks a
+default in this order: exact `DEFAULT_MODEL`, the first `cc/` id, the first
+entry. A v1 plain-id or v2 cache returns a "refetch" flag so `tui_main()`
+migrates it once; a failed refresh keeps the old ids.
 
 ## `src/chat/`
 
@@ -110,7 +114,9 @@ folds a reasoning block, and a per-message tail cursor so streaming re-wraps
 only the last row plus the new bytes. `pet.c` owns the pet card: the ASCII cat,
 reaction pools, mood and stats selection, and its responsive layout. `panel.c`
 draws the model picker, help overlay, and slash-command menu, and owns the
-shared `panel_frame()` primitive. `input.c` is the composer: insert, delete,
+shared `panel_frame()` primitive. `model.c` owns the model capability card:
+reported-only rows, the compact `not reported:` line, the models.dev estimate
+footer, and its responsive layout. `input.c` is the composer: insert, delete,
 word kill, and history.
 
 ## `src/util/`

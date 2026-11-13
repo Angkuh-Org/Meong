@@ -36,6 +36,8 @@ int jtype(const JDoc *d, int tok);
 int jstring(const JDoc *d, int tok, Buf *out);
 char *jstring_alloc(const JDoc *d, int tok);
 long long jint(const JDoc *d, int tok, long long def);
+int jbool(const JDoc *d, int tok, int def);
+double jdouble(const JDoc *d, int tok, double def);
 void json_unescape(const char *s, int n, Buf *out);
 
 /*

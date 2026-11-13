@@ -230,6 +230,7 @@ static void draw_header(App *a, int rows, int cols) {
     backend_label(a->model, label, sizeof label);
     int x = 10;
     int chipw = (int)strlen(label) + 2;
+    int mstart = x;
     if (a->color) {
         wattrset(stdscr, pair_attr(a, chip_pair(label)) | A_BOLD);
         mvaddch(0, x, ' ');
@@ -242,6 +243,7 @@ static void draw_header(App *a, int rows, int cols) {
         mvaddch(0, x + 1 + (int)strlen(label), ']');
         chipw = (int)strlen(label) + 2;
     }
+    int mend = x + chipw;
     x += chipw;
     wattrset(stdscr, base);
     int status_w = 0;
@@ -267,9 +269,17 @@ static void draw_header(App *a, int rows, int cols) {
             tail = a->model;
         }
         if (avail > 0) {
-            mvaddnstr(0, x, tail, avail);
+            int tailn = (int)strlen(tail);
+            if (tailn > avail) {
+                tailn = avail;
+            }
+            mvaddnstr(0, x, tail, tailn);
+            mend = x + tailn;
         }
     }
+    a->model_y = 0;
+    a->model_x0 = mstart;
+    a->model_x1 = mend;
     if (status_w + 2 <= cols) {
         if (a->color) {
             wattrset(stdscr, pair_attr(a, status_pair) | A_BOLD);
@@ -603,6 +613,13 @@ void ui_draw(App *a) {
     a->brand_y = -1;
     a->brand_x0 = -1;
     a->brand_x1 = -1;
+    a->model_y = -1;
+    a->model_x0 = -1;
+    a->model_x1 = -1;
+    a->model_py0 = -1;
+    a->model_py1 = -1;
+    a->model_px0 = -1;
+    a->model_px1 = -1;
     a->pet_y0 = -1;
     a->pet_y1 = -1;
     a->pet_x0 = -1;
@@ -612,6 +629,7 @@ void ui_draw(App *a) {
         a->help_open = 0;
         a->picker_open = 0;
         a->pet_open = 0;
+        a->model_open = 0;
         const char *msg = "terminal too small";
         if (rows > 0 && cols > 0) {
             mvaddnstr(rows / 2, (cols - (int)strlen(msg)) / 2, msg, cols);
@@ -636,6 +654,8 @@ void ui_draw(App *a) {
         help_draw(a, rows, cols);
     } else if (a->pet_open) {
         pet_draw(a, rows, cols);
+    } else if (a->model_open) {
+        model_info_draw(a, rows, cols);
     }
     if (a->cursor_on) {
         wmove(stdscr, a->cur_y, a->cur_x);
