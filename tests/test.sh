@@ -426,6 +426,114 @@ if command -v tmux >/dev/null 2>&1; then
         i=$((i + 1))
         sleep 0.05
     done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    header=$(printf '%s\n' "$pane" | head -1)
+    case "$header" in
+        ' Meong  |  '*) ;;
+        *) fail "header does not start with the pipe-separated brand" ;;
+    esac
+    case "$header" in
+        *'| split'*) ;;
+        *) fail "header lost the model tail after the pipe" ;;
+    esac
+    case "$header" in
+        *'·'*) fail "header still uses the dot separator" ;;
+    esac
+
+    click_rc() {
+        tmux send-keys -l -t "$TMUX_SESS" \
+            "$(printf '\033[<0;%d;%dM' "$2" "$1")"
+        tmux send-keys -l -t "$TMUX_SESS" \
+            "$(printf '\033[<0;%d;%dm' "$2" "$1")"
+    }
+
+    click_at() {
+        click_rc "$1" 8
+    }
+
+    click_rc 1 3
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '( ^.^ )'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq '( ^.^ )' \
+        || fail "clicking the header brand did not open the pet card"
+    printf '%s\n' "$pane" | grep -Fq 'purrr... jangan berhenti.' \
+        || fail "first pet reaction is missing"
+    printf '%s\n' "$pane" | grep -Eq 'dielus +1x' \
+        || fail "pet counter did not start at 1"
+    printf '%s\n' "$pane" | grep -Fq 'mood' \
+        || fail "pet card is missing the mood line"
+    ok "clicking Meong pets it and opens the cat card"
+
+    tmux capture-pane -e -p -t "$TMUX_SESS" >"$TMP/pet.ansi"
+    python3 tests/python/panel_attr.py "$TMP/pet.ansi" 'pet card' \
+        || fail "pet card background"
+    ok "pet card has a solid background"
+
+    click_rc 20 50
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Eq 'dielus +2x'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Eq 'dielus +2x' \
+        || fail "clicking inside the card did not pet again"
+    printf '%s\n' "$pane" | grep -Fq 'meow. aku dengerin kok.' \
+        || fail "the reaction did not change on the second pet"
+
+    click_rc 1 20
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if ! tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '( ^.^ )'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    if tmux capture-pane -p -t "$TMUX_SESS" |
+        grep -Fq '( ^.^ )'; then
+        fail "clicking outside the pet card did not close it"
+    fi
+    ok "petting the card grows the counter; outside click closes"
+
+    click_rc 1 3
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '( ^.^ )'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'h'
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if ! tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '( ^.^ )'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq '❯ h' \
+        || fail "typing closed the pet card and ate the first key"
+    tmux send-keys -t "$TMUX_SESS" C-u
+    ok "typing closes the pet card without eating the key"
+
     tmux send-keys -l -t "$TMUX_SESS" 'hello'
     tmux send-keys -t "$TMUX_SESS" Enter
     i=0
@@ -438,13 +546,6 @@ if command -v tmux >/dev/null 2>&1; then
         sleep 0.05
     done
     sleep 0.2
-
-    click_at() {
-        tmux send-keys -l -t "$TMUX_SESS" \
-            "$(printf '\033[<0;8;%dM' "$1")"
-        tmux send-keys -l -t "$TMUX_SESS" \
-            "$(printf '\033[<0;8;%dm' "$1")"
-    }
 
     tmux capture-pane -p -t "$TMUX_SESS" |
         grep -Fq '○ thinking ▸' \
@@ -543,6 +644,55 @@ if command -v tmux >/dev/null 2>&1; then
     tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
     TMUX_SESS=""
 
+    TMUX_SESS="Meong-pet-narrow-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 44 -y 22 \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/plain"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" "$(printf '\033[<0;3;1M')"
+    tmux send-keys -l -t "$TMUX_SESS" "$(printf '\033[<0;3;1m')"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '( ^.^ )'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq '( ^.^ )' \
+        || fail "pet card did not open on a narrow terminal"
+    printf '%s\n' "$pane" | grep -Eq 'dielus +1x' \
+        || fail "narrow pet card clipped the pet counter"
+    printf '%s\n' "$pane" | grep -Fq 'mood' \
+        || fail "narrow pet card clipped the mood line"
+    printf '%s\n' "$pane" | grep -Fq 'model' \
+        || fail "narrow pet card clipped the model line"
+    printf '%s\n' "$pane" | grep -Fq 'purrr' \
+        || fail "narrow pet card clipped the reaction"
+
+    tmux resize-window -t "$TMUX_SESS" -x 36 -y 10
+    sleep 0.4
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq '( ^.^ )' \
+        || fail "pet card vanished at 36x10"
+    printf '%s\n' "$pane" | grep -Eq 'dielus +1x' \
+        || fail "pet card lost its counter at 36x10"
+    ok "pet card fits 44x22 and 36x10 terminals"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
     TMUX_SESS="Meong-reasononly-$$"
     tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
     tmux new-session -d -s "$TMUX_SESS" -x 110 -y 40 \
@@ -596,6 +746,54 @@ if command -v tmux >/dev/null 2>&1; then
         i=$((i + 1))
         sleep 0.05
     done
+    tmux send-keys -t "$TMUX_SESS" Tab
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'choose a model'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -t "$TMUX_SESS" F1
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '( ^.^ )'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq '( ^.^ )' \
+        || fail "f1 did not open the pet card"
+    if printf '%s\n' "$pane" | grep -Fq 'choose a model'; then
+        fail "f1 left the model picker open under the pet card"
+    fi
+    tmux send-keys -t "$TMUX_SESS" Escape
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if ! tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '( ^.^ )'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    if printf '%s\n' "$pane" | grep -Fq '( ^.^ )'; then
+        fail "escape did not close the pet card"
+    fi
+    if printf '%s\n' "$pane" | grep -Fq 'choose a model'; then
+        fail "the picker came back after closing the pet card"
+    fi
+    if ! printf '%s\n' "$pane" | grep -Fq 'ask anything'; then
+        fail "closing the pet card leaked a character into the composer"
+    fi
+    ok "f1 pets Meong over the picker without swallowing keys"
+
     tmux send-keys -l -t "$TMUX_SESS" '/'
     i=0
     while [ "$i" -lt 100 ]; do

@@ -27,14 +27,17 @@ which seeds the `App`, resolves the endpoint, loads the model list, and picks
 the initial model. `tui_run()` is the event loop: read a key, tick the active
 stream, redraw dirty frames on a 30 ms throttle (50 ms ticks while streaming),
 and animate the spinner at 10 Hz. `handle_key()` routes keys to the composer,
-scrolling, the slash menu, the picker, or the help overlay.
+scrolling, the slash menu, the picker, the help overlay, or the pet card;
+`handle_mouse()` owns the header brand box, the pet-card hit-box, and the chat
+click.
 
 ## `src/app/`
 
 `App` in `app.h` is the single mutable state object: messages, model list,
-picker and help state, the active stream, the prompt queue, the scroll/layout
-cache, composer text, history, and theme flags. `app.c` owns message and queue
-storage and the config/cache directory rules — `MEONG_CONFIG_DIR`,
+picker, help, and pet-card state, the active stream, the prompt queue, the
+scroll/layout cache, composer text, history, and theme flags. `app.c` owns
+message and queue storage and the config/cache directory rules —
+`MEONG_CONFIG_DIR`,
 `XDG_CONFIG_HOME`, then `~/.config/meong` (and the cache equivalents).
 `state.c` reads and writes the last selected model as one line in `state`.
 
@@ -99,12 +102,15 @@ physical lines.
 
 `ui.c` handles terminal and theme setup (locale, UTF-8 detection, colour pairs,
 mouse), the header, status, input, and footer chrome, the splash and scrollbar,
-and the `ui_draw()` frame. `view.c` owns `RLine`, the wrapped row model behind
+and the `ui_draw()` frame; the header records the `Meong` brand box so a click
+or tap pets the cat. `view.c` owns `RLine`, the wrapped row model behind
 the transcript: paragraph wrapping, code fences, reasoning lines, notes,
 `draw_slice()` for UTF-8 and wide cells, the click hit-test that expands or
 folds a reasoning block, and a per-message tail cursor so streaming re-wraps
-only the last row plus the new bytes. `panel.c` draws the model picker, help
-overlay, and slash-command menu. `input.c` is the composer: insert, delete,
+only the last row plus the new bytes. `pet.c` owns the pet card: the ASCII cat,
+reaction pools, mood and stats selection, and its responsive layout. `panel.c`
+draws the model picker, help overlay, and slash-command menu, and owns the
+shared `panel_frame()` primitive. `input.c` is the composer: insert, delete,
 word kill, and history.
 
 ## `src/util/`

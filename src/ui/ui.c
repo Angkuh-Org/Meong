@@ -220,8 +220,11 @@ static void draw_header(App *a, int rows, int cols) {
         wattrset(stdscr, base | A_BOLD);
     }
     mvaddstr(0, 1, "Meong");
+    a->brand_y = 0;
+    a->brand_x0 = 1;
+    a->brand_x1 = 8; /* the word plus two cells of touch padding */
     wattrset(stdscr, base | A_DIM);
-    mvaddstr(0, 7, a->unicode ? " · " : " - ");
+    mvaddstr(0, 7, " | ");
 
     char label[32];
     backend_label(a->model, label, sizeof label);
@@ -239,7 +242,7 @@ static void draw_header(App *a, int rows, int cols) {
         mvaddch(0, x + 1 + (int)strlen(label), ']');
         chipw = (int)strlen(label) + 2;
     }
-    x += chipw + 1;
+    x += chipw;
     wattrset(stdscr, base);
     int status_w = 0;
     char status[160];
@@ -251,7 +254,10 @@ static void draw_header(App *a, int rows, int cols) {
         snprintf(status, sizeof status, "%s ready", sym_status(a));
     }
     status_w = (int)strlen(status);
-    if (x + 12 + status_w < cols) {
+    if (x + 15 + status_w < cols) {
+        wattrset(stdscr, base | A_DIM);
+        mvaddstr(0, x, " | ");
+        x += 3;
         wattrset(stdscr, base);
         int avail = cols - 2 - status_w - 2 - x;
         const char *tail = strchr(a->model, '/');
@@ -527,6 +533,8 @@ static void draw_footer(App *a, int rows, int cols, int slash) {
     const char *hint;
     if (a->help_open) {
         hint = "press any key";
+    } else if (a->pet_open) {
+        hint = "click card = pet · outside/key = close";
     } else if (slash) {
         if (a->unicode) {
             hint = cols < 64 ? "↑↓ · enter"
@@ -592,8 +600,18 @@ void ui_draw(App *a) {
     a->chat_y0 = -1;
     a->chat_top = 0;
     a->chat_end = 0;
+    a->brand_y = -1;
+    a->brand_x0 = -1;
+    a->brand_x1 = -1;
+    a->pet_y0 = -1;
+    a->pet_y1 = -1;
+    a->pet_x0 = -1;
+    a->pet_x1 = -1;
     a->cmd_y0 = -1;
     if (rows < UI_MIN_ROWS || cols < UI_MIN_COLS) {
+        a->help_open = 0;
+        a->picker_open = 0;
+        a->pet_open = 0;
         const char *msg = "terminal too small";
         if (rows > 0 && cols > 0) {
             mvaddnstr(rows / 2, (cols - (int)strlen(msg)) / 2, msg, cols);
@@ -616,6 +634,8 @@ void ui_draw(App *a) {
         picker_draw(a, rows, cols);
     } else if (a->help_open) {
         help_draw(a, rows, cols);
+    } else if (a->pet_open) {
+        pet_draw(a, rows, cols);
     }
     if (a->cursor_on) {
         wmove(stdscr, a->cur_y, a->cur_x);

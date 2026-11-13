@@ -72,21 +72,27 @@ def main():
     rows = screen(text)
     lines = ["".join(ch for ch, _ in row) for row in rows]
 
-    top = px = w = None
+    top = None
     for y, line in enumerate(lines):
         if "choose a model" in line or "Meong · help" in line:
             top = y
-            if "┌" in line:
-                left, right = "┌", "┐"
-            elif "╭" in line:
-                left, right = "╭", "╮"
-            else:
-                left, right = "+", "+"
-            px = line.index(left)
-            w = line.index(right, px + 1) - px + 1
             break
-    if top is None:
+        if "/\\_/\\" in line and y > 0:
+            prev = lines[y - 1]
+            if "┌" in prev or "╭" in prev or "+" in prev:
+                top = y - 1
+                break
+    if top is None or top < 0:
         sys.exit(f"{label}: panel top border not found")
+    border = lines[top]
+    if "┌" in border:
+        left, right = "┌", "┐"
+    elif "╭" in border:
+        left, right = "╭", "╮"
+    else:
+        left, right = "+", "+"
+    px = border.index(left)
+    w = border.index(right, px + 1) - px + 1
 
     bottom = None
     for y in range(top + 1, len(rows)):
