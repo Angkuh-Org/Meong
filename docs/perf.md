@@ -1,9 +1,40 @@
 # Performance
 
-Two passes so far. v0.2.1 removes the per-event JSON allocations, re-wraps only
-the streaming tail, and parses the common SSE frame without jsmn.
+Three passes so far. v0.2.1 removes the per-event JSON allocations, re-wraps only
+the streaming tail, and parses the common SSE frame without jsmn. v0.6.0 is a
+UI no-regression check: it changes the status band, footer, and header without
+touching the streaming hot path.
 
 ![Meong v0.2.0-rc1 vs v0.2.1 benchmark](images/profile-v0.2.0-rc1-vs-v0.2.1.png)
+
+## v0.6.0 — UI polish, streaming hot path unchanged
+
+This release changes the spinner, footer, `?` help, context percentage, and
+header. The SSE decoder, JSON parser, and layout engine are untouched.
+
+| Workload | v0.5.0-rc1 | v0.6.0 | Delta |
+| --- | --- | --- | --- |
+| Binary size (local `-O2`, `ld.lld`) | 101,936 B | 102,016 B | +80 B (+0.08%) |
+| Wall time / 8 MB SSE, run 1 | 144.8 ms | 149.2 ms | no stable direction |
+| Wall time / 8 MB SSE, run 2 | 143.9 ms | 136.0 ms | no stable direction |
+| TUI 1 MB stream, CPU (10 ms ticks), run 1 | 70 ms | 50 ms | no stable direction |
+| TUI 1 MB stream, CPU (10 ms ticks), run 2 | 50 ms | 60 ms | no stable direction |
+| TUI 1 MB stream, wall, run 1 / run 2 | 192.1 / 180.9 ms | 188.1 / 185.7 ms | within ±3% |
+| Stream output | — | — | byte-identical (SHA-256) |
+
+- Baseline: `git archive v0.5.0-rc1`, then `./build.sh`; candidate: the v0.6.0
+  tree, same `-O2`, stripped, `ld.lld`. The SSE mock is
+  `tests/python/bench_sse.py` (8 MB, 64 B deltas); median of 9 interleaved
+  pairs per run, two full runs. The wall-time medians flip sign between runs,
+  so the streaming path is unchanged within noise.
+- TUI: the same 1 MB stream through a 110x40 tmux session; CPU is
+  `/proc/<pid>` utime+stime at 10 ms tick resolution, wall is from the prompt
+  to the completion footer; 5 interleaved pairs per run, two runs. The CPU
+  medians flip between runs and the tick quantum is coarser than the expected
+  header/footer cost. The frame is dominated by ncurses and the pty, so this is
+  a no-regression check, not a speed claim.
+- Binary growth is the new header/footer/help code. No chart is drawn because
+  there is no before/after speedup to show.
 
 ## v0.2.1 — allocator reuse, tail layout, fast delta scanner
 

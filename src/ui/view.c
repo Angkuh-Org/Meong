@@ -528,14 +528,14 @@ void draw_chat(App *a, int rows, int cols) {
                     char el[32];
                     fmt_elapsed(gm->elapsed, el, sizeof el);
                     if (gm->ctok > 0) {
-                        snprintf(stat, sizeof stat, "%ld tok · %s",
+                        snprintf(stat, sizeof stat, "%ld tok | %s",
                                  gm->ctok, el);
                     } else {
                         snprintf(stat, sizeof stat, "%s", el);
                     }
                 }
                 if (gm->stopped && stat[0]) {
-                    snprintf(st, sizeof st, "stopped · %s", stat);
+                    snprintf(st, sizeof st, "stopped | %s", stat);
                 } else if (gm->stopped) {
                     snprintf(st, sizeof st, "stopped");
                 } else {

@@ -25,9 +25,16 @@ void set_model(App *a, const char *id) {
         free(trimmed);
         return;
     }
+    int changed = !a->model || strcmp(a->model, v) != 0;
     free(a->model);
     a->model = xstrdup(v);
     state_save_model(a->model);
+    if (changed) {
+        a->have_gen_stats = 0;
+        a->last_trimmed = 0;
+        a->last_ptok = 0;
+        a->last_ctok = 0;
+    }
     note(a, "model %s", a->model);
     free(trimmed);
     a->dirty = 1;

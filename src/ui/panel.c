@@ -284,7 +284,7 @@ void help_draw(App *a, int rows, int cols) {
     }
     int px = (cols - w) / 2;
     int py = (rows - h) / 2;
-    panel_frame(a, px, py, w, h, " Meong · help ", 1);
+    panel_frame(a, px, py, w, h, " Meong | help ", 1);
     const char *lines[] = {
         "commands",
         "  /model [id]    pick a model, or switch directly",
@@ -297,6 +297,7 @@ void help_draw(App *a, int rows, int cols) {
         "",
         "keys",
         "  /              command menu (up/down, enter)",
+        "  ?              help (empty composer)",
         "  enter          send, or queue while replying",
         "  tab            model picker / slash complete",
         "  pgup / pgdn    scroll the conversation",

@@ -8,6 +8,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "api/api.h"
 #include "chat/chat.h"
 
 /* acid/cyber industrial: xterm-256 indices nearest to
@@ -19,8 +20,11 @@
 #define C_MUTED 243
 #define C_SHADOW 234
 
-static const char *spin_utf8[] = {"⠋", "⠙", "⠹", "⠸", "⠼",
-                                  "⠴", "⠦", "⠧", "⠇", "⠏"};
+/* one quadrant filled clockwise; wall-clock phase, and the modulo below is
+ * the table length, so adding a frame cannot read past the array */
+#define SPIN_FRAMES(a) ((int)(sizeof(a) / sizeof((a)[0])))
+#define SPIN_HZ 5 /* 5 frames/s: one clockwise turn per 0.8 s */
+static const char *spin_utf8[] = {"▖", "▘", "▝", "▗"};
 static const char *spin_ascii[] = {"|", "/", "-", "\\"};
 
 static void term_signal(int sig) {
@@ -226,67 +230,100 @@ static void draw_header(App *a, int rows, int cols) {
     wattrset(stdscr, base | A_DIM);
     mvaddstr(0, 7, " | ");
 
-    char label[32];
-    backend_label(a->model, label, sizeof label);
+    char prov[32];
+    backend_label(a->model, prov, sizeof prov);
+
+    /* TODO(fix): getcwd() fails for paths longer than 511 bytes, and this
+     * runs every idle frame even though src/ never chdir()s. Cache the cwd
+     * in App at startup (or refresh if a future command can change it), and
+     * fall back to a shorter suffix instead of dropping to "ready". */
+    char right[512];
+    /* TODO(mem): right/fit/midbuf/prov put ~1.7 KB peak on the draw stack.
+     * In-place right truncation was measured: -512 B frame, +16 insn and
+     * +64 B text, so it was rejected. Revisit only if draw-stack size
+     * becomes a constraint. */
+    char fit[512];
+    const char *show = right;
+    int right_dim = 0;
+    if (a->streaming) {
+        snprintf(right, sizeof right, "%s streaming", sym_status(a));
+    } else if (getcwd(right, sizeof right)) {
+        right_dim = 1;
+    } else {
+        snprintf(right, sizeof right, "%s ready", sym_status(a));
+    }
+    int right_w = (int)strlen(right);
+
     int x = 10;
-    int chipw = (int)strlen(label) + 2;
+    int midmax = cols - x - 2;
+    if (right_w > 0) {
+        int reserve = right_w + 1;
+        if (reserve > cols / 2) {
+            reserve = cols / 2;
+        }
+        midmax -= reserve;
+    }
+    /* TODO(dead): unreachable while ui_draw gates cols >= UI_MIN_COLS (36):
+     * 36 - 12 - 36/2 = 6. Keep as a guard only if the header geometry
+     * changes; otherwise delete. */
+    if (midmax < 6) {
+        midmax = 6;
+        right_w = 0;
+    }
+    const char *mid = a->model ? a->model : "";
+    int midn = (int)strlen(mid);
+    char midbuf[256];
+    /* TODO(fix): when keep exceeds sizeof midbuf - ellipsis bytes, snprintf
+     * truncates but midn stays keep, so the closing cell, mend and model_x1
+     * run past the drawn text. Clamp keep and derive midn from the ellipsis
+     * width -- not strlen(), because the UTF-8 ellipsis is 3 bytes/1 column. */
+    if (midn > midmax - 2) {
+        int keep = midmax - 2;
+        snprintf(midbuf, sizeof midbuf, "%.*s%s", keep - 1, mid,
+                 a->unicode ? "…" : "~");
+        mid = midbuf;
+        midn = keep;
+    }
     int mstart = x;
     if (a->color) {
-        wattrset(stdscr, pair_attr(a, chip_pair(label)) | A_BOLD);
+        wattrset(stdscr, pair_attr(a, chip_pair(prov)) | A_BOLD);
         mvaddch(0, x, ' ');
-        mvaddstr(0, x + 1, label);
-        mvaddch(0, x + 1 + (int)strlen(label), ' ');
+        mvaddstr(0, x + 1, mid);
+        mvaddch(0, x + 1 + midn, ' ');
     } else {
         wattrset(stdscr, base | A_BOLD | A_REVERSE);
         mvaddch(0, x, '[');
-        mvaddstr(0, x + 1, label);
-        mvaddch(0, x + 1 + (int)strlen(label), ']');
-        chipw = (int)strlen(label) + 2;
+        mvaddstr(0, x + 1, mid);
+        mvaddch(0, x + 1 + midn, ']');
     }
-    int mend = x + chipw;
-    x += chipw;
-    wattrset(stdscr, base);
-    int status_w = 0;
-    char status[160];
-    int status_pair = P_HOK;
-    if (a->streaming) {
-        snprintf(status, sizeof status, "%s streaming", sym_status(a));
-        status_pair = P_HWAIT;
-    } else {
-        snprintf(status, sizeof status, "%s ready", sym_status(a));
-    }
-    status_w = (int)strlen(status);
-    if (x + 15 + status_w < cols) {
-        wattrset(stdscr, base | A_DIM);
-        mvaddstr(0, x, " | ");
-        x += 3;
-        wattrset(stdscr, base);
-        int avail = cols - 2 - status_w - 2 - x;
-        const char *tail = strchr(a->model, '/');
-        if (tail && tail[1]) {
-            tail++;
-        } else {
-            tail = a->model;
-        }
-        if (avail > 0) {
-            int tailn = (int)strlen(tail);
-            if (tailn > avail) {
-                tailn = avail;
-            }
-            mvaddnstr(0, x, tail, tailn);
-            mend = x + tailn;
-        }
-    }
+    int mend = x + midn + 2;
     a->model_y = 0;
     a->model_x0 = mstart;
     a->model_x1 = mend;
-    if (status_w + 2 <= cols) {
-        if (a->color) {
-            wattrset(stdscr, pair_attr(a, status_pair) | A_BOLD);
-        } else {
-            wattrset(stdscr, base | A_BOLD);
+
+    if (right_w > 0) {
+        int avail = cols - 2 - mend;
+        if (right_w > avail) {
+            int keep = avail;
+            if (keep > 1) {
+                snprintf(fit, sizeof fit, "%s%s", a->unicode ? "…" : "~",
+                         right + right_w - (keep - 1));
+                show = fit;
+                right_w = keep;
+            } else {
+                right_w = 0;
+            }
         }
-        mvaddstr(0, cols - 1 - status_w, status);
+        if (right_w > 0) {
+            if (a->color) {
+                wattrset(stdscr, right_dim
+                                      ? (base | A_DIM)
+                                      : (pair_attr(a, P_HWAIT) | A_BOLD));
+            } else {
+                wattrset(stdscr, base | (right_dim ? A_DIM : A_BOLD));
+            }
+            mvaddstr(0, cols - 1 - right_w, show);
+        }
     }
 }
 
@@ -346,9 +383,7 @@ void draw_splash(App *a, int y0, int h, int cols) {
         mvaddstr(namey + 1, (cols - (int)strlen(tag)) / 2, tag);
     }
     if (namey + 3 < y0 + h) {
-        const char *hint = a->unicode
-                               ? "type a message below  ·  tab chooses a model"
-                               : "type a message below  -  tab chooses a model";
+        const char *hint = "type a message below  |  tab chooses a model";
         if ((int)strlen(hint) < cols) {
             mvaddstr(namey + 3, (cols - (int)strlen(hint)) / 2, hint);
         }
@@ -385,25 +420,25 @@ static void draw_status(App *a, int rows, int cols) {
     }
     int y = rows - 4 - n;
     if (a->streaming) {
-        const char *spin = a->unicode
-                               ? spin_utf8[(int)(now_sec() * 10) % 10]
-                               : spin_ascii[(int)(now_sec() * 10) % 4];
+        double now = now_sec();
+        unsigned long long tick = (unsigned long long)(now * SPIN_HZ);
+        const char *spin =
+            a->unicode ? spin_utf8[tick % SPIN_FRAMES(spin_utf8)]
+                       : spin_ascii[tick % SPIN_FRAMES(spin_ascii)];
         char elapsed[32];
         char count[32];
-        fmt_elapsed(now_sec() - a->gen_start, elapsed, sizeof elapsed);
+        fmt_elapsed(now - a->gen_start, elapsed, sizeof elapsed);
         Msg *m = (a->gen_idx >= 0 && a->gen_idx < a->nmsg)
                      ? &a->msgs[a->gen_idx]
                      : NULL;
         fmt_count(m ? (long long)m->chars : 0, count, sizeof count);
         wattrset(stdscr, pair_attr(a, P_WAIT) | A_BOLD);
         mvaddstr(y, 2, spin);
-        wattrset(stdscr, pair_attr(a, P_ACCENT));
-        mvaddstr(y, 4, "generating");
         char info[80];
         snprintf(info, sizeof info, "%s  %s ch", elapsed, count);
         wattrset(stdscr, pair_attr(a, P_DIM));
-        if (cols > 18) {
-            mvaddnstr(y, 15, info, cols - 16);
+        if (cols > 10) {
+            mvaddnstr(y, 4, info, cols - 5);
         }
         y++;
     }
@@ -544,22 +579,19 @@ static void draw_footer(App *a, int rows, int cols, int slash) {
     if (a->help_open) {
         hint = "press any key";
     } else if (a->pet_open) {
-        hint = "click card = pet · outside/key = close";
+        hint = "click card = pet | outside/key = close";
     } else if (slash) {
         if (a->unicode) {
-            hint = cols < 64 ? "↑↓ · enter"
-                             : "↑↓ choose · enter complete · esc close";
+            hint = cols < 64 ? "↑↓ | enter"
+                             : "↑↓ choose | enter complete | esc close";
         } else {
-            hint = cols < 64 ? "up/down - enter"
-                             : "up/down choose - enter complete - esc close";
+            hint = cols < 64 ? "up/down | enter"
+                             : "up/down choose | enter complete | esc close";
         }
     } else if (a->streaming) {
-        hint = cols < 64 ? "enter queue · ctrl-c cancel"
-                         : "enter queue · ctrl-c cancel · pgup/pgdn scroll";
-    } else if (cols < 64) {
-        hint = "enter send · tab models · /help";
+        hint = "enter queue | ctrl-c cancel";
     } else {
-        hint = "enter send · tab models · pgup/pgdn scroll · /help";
+        hint = "enter send | ? help";
     }
     mvaddnstr(y, 1, hint, cols - 2);
     char right[160];
@@ -568,12 +600,31 @@ static void draw_footer(App *a, int rows, int cols, int slash) {
         snprintf(right, sizeof right, "%s new", sym_arrow_down(a));
     } else if (a->have_gen_stats || a->last_trimmed) {
         char n[32] = "";
+        /* TODO(perf): this linearly strcmp()s a->models every frame once gen
+         * stats exist. Cache context_window in App when the model or model
+         * list changes; the whole draw frame is ~324k Ir (96% ncurses/libc),
+         * so measure before taking it. */
+        const ModelCaps *caps =
+            a->model ? model_caps_for(a, a->model) : NULL;
         if (a->have_gen_stats && a->last_ptok > 0) {
-            fmt_count(a->last_ptok, n, sizeof n);
+            long long used = a->last_ptok + a->last_ctok;
+            if (caps && caps->context_window > 0) {
+                long long pct = (used * 100 + caps->context_window / 2) /
+                                caps->context_window;
+                if (pct < 1) {
+                    snprintf(n, sizeof n, "<1%%");
+                } else if (pct > 100) {
+                    snprintf(n, sizeof n, "100%%");
+                } else {
+                    snprintf(n, sizeof n, "%lld%%", pct);
+                }
+            } else {
+                fmt_count(a->last_ptok, n, sizeof n);
+            }
         }
         if (a->last_trimmed) {
             if (n[0]) {
-                snprintf(right, sizeof right, "ctx %s · trimmed", n);
+                snprintf(right, sizeof right, "ctx %s | trimmed", n);
             } else {
                 snprintf(right, sizeof right, "context trimmed");
             }

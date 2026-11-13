@@ -74,6 +74,7 @@ row uses the same local mock on both sides. Method and raw numbers:
 | --- | --- |
 | `enter` | send; queue the prompt while a reply streams |
 | `/` | command menu: type to filter, `up`/`down` to focus, `enter`/`tab` to complete, `esc` to close |
+| `?` | open help when the composer is empty |
 | `tab` | model picker (type to filter) |
 | `pgup` / `pgdn` | scroll the conversation |
 | `ctrl-g` / `ctrl-t` | jump to bottom / top |

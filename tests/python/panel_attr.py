@@ -74,7 +74,7 @@ def main():
 
     top = None
     for y, line in enumerate(lines):
-        if "choose a model" in line or "Meong · help" in line:
+        if "choose a model" in line or "Meong | help" in line:
             top = y
             break
         if "/\\_/\\" in line and y > 0:

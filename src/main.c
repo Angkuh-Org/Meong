@@ -398,6 +398,9 @@ static void handle_key(App *a, wint_t wch, int special) {
         if (slash_open(a)) {
             slash_close(a);
         }
+    } else if (wch == '?' && a->ilen == 0) {
+        a->help_open = 1;
+        a->dirty = 1;
     } else if (wch >= 32) {
         input_insert(a, (wchar_t)wch);
     }

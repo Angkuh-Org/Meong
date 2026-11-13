@@ -18,6 +18,7 @@ MODELS = [
     "mock/error",
     "mock/error200",
     "mock/reasononly",
+    "mock/tinyctx",
 ]
 CAPABILITIES = {
     "mock/split": {
@@ -29,7 +30,10 @@ CAPABILITIES = {
         "input_cost_per_token": 0,
         "output_cost_per_token": 0,
         "estimated": True,
-    }
+    },
+    "mock/tinyctx": {
+        "context_window": 100,
+    },
 }
 CHUNKS = [3, 11, 1, 7, 19, 5, 13, 2]
 
