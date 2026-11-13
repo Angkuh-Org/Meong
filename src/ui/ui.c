@@ -8,6 +8,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "chat/chat.h"
+
 /* acid/cyber industrial: xterm-256 indices nearest to
  * base 101110, surface 222522, text d9ded6, accent b6ff00, muted 747b72 */
 #define C_BASE 233
@@ -519,12 +521,20 @@ static void draw_input(App *a, int rows, int cols) {
     a->cursor_on = 1;
 }
 
-static void draw_footer(App *a, int rows, int cols) {
+static void draw_footer(App *a, int rows, int cols, int slash) {
     int y = rows - 1;
     wattrset(stdscr, pair_attr(a, P_DIM));
     const char *hint;
     if (a->help_open) {
         hint = "press any key";
+    } else if (slash) {
+        if (a->unicode) {
+            hint = cols < 64 ? "↑↓ · enter"
+                             : "↑↓ choose · enter complete · esc close";
+        } else {
+            hint = cols < 64 ? "up/down - enter"
+                             : "up/down choose - enter complete - esc close";
+        }
     } else if (a->streaming) {
         hint = cols < 64 ? "enter queue · ctrl-c cancel"
                          : "enter queue · ctrl-c cancel · pgup/pgdn scroll";
@@ -582,7 +592,8 @@ void ui_draw(App *a) {
     a->chat_y0 = -1;
     a->chat_top = 0;
     a->chat_end = 0;
-    if (rows < 10 || cols < 36) {
+    a->cmd_y0 = -1;
+    if (rows < UI_MIN_ROWS || cols < UI_MIN_COLS) {
         const char *msg = "terminal too small";
         if (rows > 0 && cols > 0) {
             mvaddnstr(rows / 2, (cols - (int)strlen(msg)) / 2, msg, cols);
@@ -593,9 +604,14 @@ void ui_draw(App *a) {
     }
     draw_header(a, rows, cols);
     draw_chat(a, rows, cols);
+    int idx[SLASH_MAX];
+    int slash_n = slash_open_list(a, idx, SLASH_MAX);
+    if (slash_n > 0) {
+        slash_draw(a, rows, cols, idx, slash_n);
+    }
     draw_status(a, rows, cols);
     draw_input(a, rows, cols);
-    draw_footer(a, rows, cols);
+    draw_footer(a, rows, cols, slash_n > 0);
     if (a->picker_open) {
         picker_draw(a, rows, cols);
     } else if (a->help_open) {

@@ -1,11 +1,16 @@
 #include "ui/ui.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "chat/chat.h"
+
+#define SLASH_DCOL 17
+
 static void panel_frame(App *a, int px, int py, int w, int h,
-                        const char *title) {
-    if (a->color && COLORS >= 256) {
+                        const char *title, int shadow) {
+    if (shadow && a->color && COLORS >= 256) {
         wattrset(stdscr, pair_attr(a, P_SHADOW));
         for (int y = py + 1; y <= py + h; y++) {
             for (int x = px + 1; x <= px + w; x++) {
@@ -147,7 +152,7 @@ void picker_draw(App *a, int rows, int cols) {
     }
     int px = (cols - w) / 2;
     int py = (rows - h) / 2;
-    panel_frame(a, px, py, w, h, " choose a model ");
+    panel_frame(a, px, py, w, h, " choose a model ", 1);
     int fy = py + 1;
     wattrset(stdscr, pair_attr(a, P_PANEL_DIM));
     mvaddstr(fy, px + 2, "filter");
@@ -277,7 +282,7 @@ void help_draw(App *a, int rows, int cols) {
     }
     int px = (cols - w) / 2;
     int py = (rows - h) / 2;
-    panel_frame(a, px, py, w, h, " Meong · help ");
+    panel_frame(a, px, py, w, h, " Meong · help ", 1);
     const char *lines[] = {
         "commands",
         "  /model [id]    pick a model, or switch directly",
@@ -289,8 +294,9 @@ void help_draw(App *a, int rows, int cols) {
         "  /quit          leave Meong",
         "",
         "keys",
+        "  /              command menu (up/down, enter)",
         "  enter          send, or queue while replying",
-        "  tab            model picker",
+        "  tab            model picker / slash complete",
         "  pgup / pgdn    scroll the conversation",
         "  ctrl-g / ctrl-t jump to bottom / top",
         "  ctrl-c         cancel a reply, or quit when idle",
@@ -311,5 +317,67 @@ void help_draw(App *a, int rows, int cols) {
         mvaddnstr(y, px + 3, lines[i], w - 6);
     }
     a->cursor_on = 0;
+}
+
+void slash_draw(App *a, int rows, int cols, const int *idx, int n) {
+    if (n == 0) {
+        return;
+    }
+    int w = cols - 2;
+    if (w > 58) {
+        w = 58;
+    }
+    if (w < 24) {
+        return;
+    }
+    int h = n + 2;
+    int py = chat_height(a, rows) - h + 1;
+    if (py < 1) {
+        return;
+    }
+    int px = 1;
+    panel_frame(a, px, py, w, h, NULL, 0);
+    a->cmd_y0 = py;
+    a->cmd_x0 = px;
+    a->cmd_w = w;
+    a->cmd_h = h;
+    if (a->cmd_sel < 0) {
+        a->cmd_sel = 0;
+    }
+    if (a->cmd_sel >= n) {
+        a->cmd_sel = n - 1;
+    }
+    const SlashCmd *tab = slash_cmds(NULL);
+    for (int i = 0; i < n; i++) {
+        const SlashCmd *c = &tab[idx[i]];
+        int y = py + 1 + i;
+        int sel = i == a->cmd_sel;
+        if (sel) {
+            attr_t sa = a->color ? pair_attr(a, P_SEL) : (attr_t)A_REVERSE;
+            wattrset(stdscr, sa);
+            mvhline(y, px + 1, ' ', w - 2);
+            wattrset(stdscr, sa | A_BOLD);
+            mvaddstr(y, px + 2, a->unicode ? "› " : "> ");
+            mvaddstr(y, px + 4, c->label);
+            if (c->arg[0]) {
+                wattrset(stdscr, sa);
+                mvaddstr(y, px + 4 + c->label_len + 1, c->arg);
+            }
+            wattrset(stdscr, sa);
+            mvaddnstr(y, px + SLASH_DCOL, c->desc, w - SLASH_DCOL - 1);
+        } else {
+            wattrset(stdscr, pair_attr(a, P_PANEL));
+            mvhline(y, px + 1, ' ', w - 2);
+            wattrset(stdscr, pair_attr(a, P_PANEL_ACCENT) | A_BOLD);
+            mvaddstr(y, px + 2, "  ");
+            mvaddstr(y, px + 4, c->label);
+            if (c->arg[0]) {
+                wattrset(stdscr, pair_attr(a, P_PANEL_DIM));
+                mvaddstr(y, px + 4 + c->label_len + 1, c->arg);
+            }
+            wattrset(stdscr, pair_attr(a, P_PANEL_DIM));
+            mvaddnstr(y, px + SLASH_DCOL, c->desc, w - SLASH_DCOL - 1);
+        }
+    }
 }
 
