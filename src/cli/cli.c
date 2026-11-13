@@ -163,39 +163,49 @@ typedef struct {
     int wrote;
     int failed;
     char err[1024];
+    JDoc doc;
+    Buf buf;
 } CliStream;
 
 static int cli_on_event(void *ud, const char *data, size_t len) {
     CliStream *c = ud;
-    /* TODO(perf): reuse a JDoc and Buf pair on CliStream instead of
-     * allocating per event (see the allocator note above jdoc_parse). */
-    JDoc d;
-    if (jdoc_parse(&d, data, len) != 0) {
+    JDelta fd;
+    if (jdelta_scan(data, len, &fd) == 0) {
+        if (fd.has_content) {
+            buf_clear(&c->buf);
+            json_unescape(fd.content, fd.content_len, &c->buf);
+            if (c->buf.len > 0) {
+                fwrite(c->buf.p, 1, c->buf.len, stdout);
+                fflush(stdout);
+                c->wrote = 1;
+            }
+        }
         return 0;
     }
-    int root = jdoc_root(&d);
-    int er = jget(&d, root, "error");
+    JDoc *d = &c->doc;
+    if (jdoc_parse(d, data, len) != 0) {
+        return 0;
+    }
+    int root = jdoc_root(d);
+    int er = jget(d, root, "error");
     if (er >= 0 && !c->failed) {
         extract_api_error(data, len, c->err, sizeof c->err);
         c->failed = 1;
     }
-    int choices = jget(&d, root, "choices");
-    int c0 = jgeti(&d, choices, 0);
+    int choices = jget(d, root, "choices");
+    int c0 = jgeti(d, choices, 0);
     if (c0 >= 0) {
-        int delta = jget(&d, c0, "delta");
-        int content = delta >= 0 ? jget(&d, delta, "content") : -1;
-        if (content >= 0 && jtype(&d, content) == J_STRING) {
-            Buf b;
-            buf_init(&b);
-            if (jstring(&d, content, &b) == 0 && b.len > 0) {
-                fwrite(b.p, 1, b.len, stdout);
+        int delta = jget(d, c0, "delta");
+        int content = delta >= 0 ? jget(d, delta, "content") : -1;
+        if (content >= 0 && jtype(d, content) == J_STRING) {
+            buf_clear(&c->buf);
+            if (jstring(d, content, &c->buf) == 0 && c->buf.len > 0) {
+                fwrite(c->buf.p, 1, c->buf.len, stdout);
                 fflush(stdout);
                 c->wrote = 1;
             }
-            buf_free(&b);
         }
     }
-    jdoc_free(&d);
     return 0;
 }
 
@@ -228,6 +238,8 @@ int cli_oneshot(const Options *o) {
         return 1;
     }
     int r = drive_stream(s, 600.0, NULL);
+    jdoc_free(&cli.doc);
+    buf_free(&cli.buf);
     if (r == -2) {
         fprintf(stderr, "Meong: timed out\n");
         stream_free(s);

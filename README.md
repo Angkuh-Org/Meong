@@ -21,7 +21,7 @@ back to `-lncursesw`).
 ./tests/test.sh         # offline mock + pty/tmux TUI tests
 ```
 
-The binary is ~80 KB stripped with lld; GNU bfd defaults to 64K
+The binary is ~86 KB stripped with lld; GNU bfd defaults to 64K
 max-page-size on aarch64 and links ~133 KB.
 
 Release binaries are built on Ubuntu 22.04 and need glibc 2.35+,
@@ -52,16 +52,17 @@ for you.
 
 ## Performance
 
-v0.1.1 removes the per-byte `buf_addc` calls in the SSE decoder and JSON
-unescape, and stops re-wrapping the whole transcript on every streaming
-redraw. Release builds of both trees, same mock workload:
+v0.2.1 removes the per-event JSON allocations, re-wraps only the streaming
+tail, and parses the common SSE frame without jsmn. Release builds of both
+trees, same mock workload:
 
-![Meong v0.1.0 vs v0.1.1 benchmark](docs/images/profile-v0.1.0-vs-v0.1.1.png)
+![Meong v0.2.0-rc1 vs v0.2.1 benchmark](docs/images/profile-v0.2.0-rc1-vs-v0.2.1.png)
 
-- streaming CPU: 69% fewer instructions, 3.23× less work per 1 MB
-- streaming wall clock: 51% less time, 2.04× faster per 8 MB (median of 9)
-- layout redraw with 201 messages: 99.8% less, 460× less work
-- binary: 78,128 B → 78,792 B (+664 B)
+- streaming CPU: 52% fewer instructions, 2.09× less work per 1 MB
+- streaming wall clock: 33% less time, 1.49× faster per 8 MB (median of 9
+  interleaved pairs)
+- forced layout, 3,125 × 64 B appends on 200 KB: 99.2% less work, 123× faster
+- binary: 79,496 B → 86,568 B (+7,072 B)
 
 These are loopback instruction ratios, not gateway latency; the wall-clock
 row uses the same local mock on both sides. Method and raw numbers:
@@ -125,8 +126,9 @@ The gateway does not authenticate inbound requests. Keep PAIG on loopback.
   the visible transcript keeps everything until `/clear`.
 - Code fences are rendered in a separate color; input supports UTF-8 and wide
   characters.
-- Vendored [`jsmn`](src/json/jsmn.h) tokenizes JSON; Meong's wrapper
-  handles unescaping, surrogate pairs, and traversal.
+- Vendored [`jsmn`](src/json/jsmn.h) remains the JSON fallback; a fast delta
+  scanner handles the common SSE frame, and the wrapper owns unescaping,
+  surrogate pairs, and traversal.
 
 ## License
 
