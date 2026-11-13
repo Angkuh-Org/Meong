@@ -87,65 +87,101 @@ static int build_chat_body(App *a, Buf *b, int *trimmed_out) {
     return 0;
 }
 
-static int on_stream_event(void *ud, const char *data, size_t len) {
-    App *a = ud;
-    /* TODO(perf): reuse a JDoc and Buf pair on App instead of allocating
-     * per event (see the allocator note above jdoc_parse in json.c). */
-    JDoc d;
-    if (jdoc_parse(&d, data, len) != 0) {
-        return 0;
+static void stream_apply(App *a, const JDelta *fd) {
+    if (fd->has_ptok && fd->prompt_tokens >= 0) {
+        a->gen_ptok = (long)fd->prompt_tokens;
     }
-    int root = jdoc_root(&d);
-    int er = jget(&d, root, "error");
+    if (fd->has_ctok && fd->completion_tokens >= 0) {
+        a->gen_ctok = (long)fd->completion_tokens;
+    }
+    if (a->gen_idx < 0 || a->gen_idx >= a->nmsg) {
+        return;
+    }
+    Msg *m = &a->msgs[a->gen_idx];
+    if (fd->has_content) {
+        buf_clear(&a->stream_buf);
+        json_unescape(fd->content, fd->content_len, &a->stream_buf);
+        if (a->stream_buf.len > 0 &&
+            msg_append(m, a->stream_buf.p, a->stream_buf.len) != 0) {
+            snprintf(a->stream_err, sizeof a->stream_err,
+                     "the reply grew past %u bytes", MAX_TEXT);
+            a->stream_failed = 1;
+        }
+    }
+    if (fd->has_reason) {
+        buf_clear(&a->stream_buf);
+        json_unescape(fd->reason, fd->reason_len, &a->stream_buf);
+        if (a->stream_buf.len > 0) {
+            msg_append_reason(m, a->stream_buf.p, a->stream_buf.len);
+        }
+    }
+}
+
+static int stream_apply_json(App *a, const char *data, size_t len) {
+    JDoc *d = &a->stream_doc;
+    if (jdoc_parse(d, data, len) != 0) {
+        return -1;
+    }
+    int root = jdoc_root(d);
+    int er = jget(d, root, "error");
     if (er >= 0 && !a->stream_failed) {
         extract_api_error(data, len, a->stream_err, sizeof a->stream_err);
         a->stream_failed = 1;
     }
-    int usage = jget(&d, root, "usage");
+    int usage = jget(d, root, "usage");
     if (usage >= 0) {
-        long long v = jint(&d, jget(&d, usage, "prompt_tokens"), -1);
+        long long v = jint(d, jget(d, usage, "prompt_tokens"), -1);
         if (v >= 0) {
             a->gen_ptok = (long)v;
         }
-        v = jint(&d, jget(&d, usage, "completion_tokens"), -1);
+        v = jint(d, jget(d, usage, "completion_tokens"), -1);
         if (v >= 0) {
             a->gen_ctok = (long)v;
         }
     }
-    int choices = jget(&d, root, "choices");
-    int c0 = jgeti(&d, choices, 0);
+    int choices = jget(d, root, "choices");
+    int c0 = jgeti(d, choices, 0);
     if (c0 >= 0) {
-        int delta = jget(&d, c0, "delta");
+        int delta = jget(d, c0, "delta");
         if (delta >= 0 && a->gen_idx >= 0 && a->gen_idx < a->nmsg) {
             Msg *m = &a->msgs[a->gen_idx];
-            int content = jget(&d, delta, "content");
-            if (content >= 0 && jtype(&d, content) == J_STRING) {
-                Buf t;
-                buf_init(&t);
-                if (jstring(&d, content, &t) == 0 && t.len > 0) {
-                    if (msg_append(m, t.p, t.len) != 0) {
+            int content = jget(d, delta, "content");
+            if (content >= 0 && jtype(d, content) == J_STRING) {
+                buf_clear(&a->stream_buf);
+                if (jstring(d, content, &a->stream_buf) == 0 &&
+                    a->stream_buf.len > 0) {
+                    if (msg_append(m, a->stream_buf.p,
+                                   a->stream_buf.len) != 0) {
                         snprintf(a->stream_err, sizeof a->stream_err,
                                  "the reply grew past %u bytes", MAX_TEXT);
                         a->stream_failed = 1;
                     }
                 }
-                buf_free(&t);
             }
-            int reason = jget(&d, delta, "reasoning_content");
+            int reason = jget(d, delta, "reasoning_content");
             if (reason < 0) {
-                reason = jget(&d, delta, "reasoning");
+                reason = jget(d, delta, "reasoning");
             }
-            if (reason >= 0 && jtype(&d, reason) == J_STRING) {
-                Buf t;
-                buf_init(&t);
-                if (jstring(&d, reason, &t) == 0 && t.len > 0) {
-                    msg_append_reason(m, t.p, t.len);
+            if (reason >= 0 && jtype(d, reason) == J_STRING) {
+                buf_clear(&a->stream_buf);
+                if (jstring(d, reason, &a->stream_buf) == 0 &&
+                    a->stream_buf.len > 0) {
+                    msg_append_reason(m, a->stream_buf.p, a->stream_buf.len);
                 }
-                buf_free(&t);
             }
         }
     }
-    jdoc_free(&d);
+    return 0;
+}
+
+static int on_stream_event(void *ud, const char *data, size_t len) {
+    App *a = ud;
+    JDelta fd;
+    if (jdelta_scan(data, len, &fd) == 0) {
+        stream_apply(a, &fd);
+    } else if (stream_apply_json(a, data, len) != 0) {
+        return 0;
+    }
     a->layout_dirty = 1;
     if (a->gen_idx >= 0 && a->layout_from > a->gen_idx) {
         a->layout_from = a->gen_idx;
@@ -170,6 +206,8 @@ int start_generation(App *a) {
     a->stream_failed = 0;
     int idx = msg_add(a, ROLE_ASSISTANT, "");
     a->gen_idx = idx;
+    /* Rebuild from the last user turn; /retry's stale rows sit above it. */
+    a->layout_from = idx > 0 ? idx - 1 : 0;
     Stream *s = NULL;
     if (stream_start(&s, &a->ep, "POST", "/v1/chat/completions", body.p,
                      body.len, 1, on_stream_event, a, 240000, err,

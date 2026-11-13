@@ -48,16 +48,31 @@ static int line_is_fence(const char *s, size_t len) {
     return i + 3 <= len && memcmp(s + i, "```", 3) == 0;
 }
 
-static void wrap_para(App *a, int mi, const char *s, size_t len, size_t base,
-                      int type, int width, int cont_start) {
+static void mark_tail(Msg *m, size_t off, int row, int cont, size_t para,
+                      int code) {
+    m->lay_off = off;
+    m->lay_para = para;
+    m->lay_row = row;
+    m->lay_cont = cont;
+    m->lay_code = code;
+    m->lay_valid = 1;
+}
+
+static void wrap_run(App *a, int mi, const char *s, size_t len, size_t base,
+                     int type, int width, size_t from, int cont_start,
+                     int code, int mark) {
+    Msg *m = &a->msgs[mi];
     if (width < 8) {
         width = 8;
     }
     if (len == 0) {
         line_push(a, type, mi, (int)base, 0, cont_start);
+        if (mark) {
+            mark_tail(m, base, a->nlines - 1, cont_start, base, code);
+        }
         return;
     }
-    size_t pos = 0;
+    size_t pos = from;
     int cont = cont_start;
     while (pos < len) {
         size_t start = pos;
@@ -135,18 +150,38 @@ static void wrap_para(App *a, int mi, const char *s, size_t len, size_t base,
             next++;
         }
         line_push(a, type, mi, (int)(base + start), (int)(end - start), cont);
+        if (mark) {
+            mark_tail(m, base + start, a->nlines - 1, cont, base, code);
+        }
         cont = 1;
         pos = next;
     }
 }
 
-static void layout_message(App *a, int mi) {
+static void layout_message(App *a, int mi, int incremental) {
     Msg *m = &a->msgs[mi];
+    if (m->lay_cursor > 0) {
+        int cr = m->lay_cursor - 1;
+        if (cr < a->nlines && a->lines[cr].msg == mi) {
+            a->lines[cr].cursor = 0;
+        }
+        m->lay_cursor = 0;
+    }
+    int inc = incremental && m->lay_valid;
+    size_t inc_off = m->lay_off;
+    size_t inc_para = m->lay_para;
+    int inc_row = m->lay_row;
+    int inc_cont = m->lay_cont;
+    int inc_code = m->lay_code;
+    int inc_text_start = m->lay_text_start;
+    m->lay_valid = 0;
+
     if (m->role == ROLE_NOTE) {
         if (m->len == 0) {
             line_push(a, RL_NOTE, mi, 0, 0, 0);
         } else {
-            wrap_para(a, mi, m->text, m->len, 0, RL_NOTE, a->layout_width, 0);
+            wrap_run(a, mi, m->text, m->len, 0, RL_NOTE, a->layout_width,
+                     0, 0, 0, 0);
         }
         line_push(a, RL_GAP, mi, 0, 0, 0);
         return;
@@ -156,50 +191,92 @@ static void layout_message(App *a, int mi) {
         if (m->len == 0) {
             line_push(a, RL_TEXT, mi, 0, 0, 0);
         } else {
-            wrap_para(a, mi, m->text, m->len, 0, RL_TEXT, a->layout_width, 0);
+            wrap_run(a, mi, m->text, m->len, 0, RL_TEXT, a->layout_width,
+                     0, 0, 0, 0);
         }
         line_push(a, RL_GAP, mi, 0, 0, 0);
-    } else {
-        int first = -1;
+        return;
+    }
+
+    int first = -1;
+    int text_start;
+    int in_code = 0;
+    size_t pos = 0;
+    if (!inc) {
         if (m->role == ROLE_ASSISTANT && m->rlen > 0) {
             line_push(a, RL_REASON_HEAD, mi, 0, 0, 0);
             first = a->nlines - 1;
             if (!m->reason_collapsed) {
-                wrap_para(a, mi, m->reason, m->rlen, 0, RL_REASON,
-                          a->layout_width, 0);
+                wrap_run(a, mi, m->reason, m->rlen, 0, RL_REASON,
+                         a->layout_width, 0, 0, 0, 0);
                 if (m->len > 0) {
                     line_push(a, RL_GAP, mi, 0, 0, 0);
                 }
             }
         }
-        int text_start = a->nlines;
-        if (m->len > 0) {
-            int in_code = 0;
-            size_t pos = 0;
-            while (pos < m->len) {
-                size_t nl = pos;
-                while (nl < m->len && m->text[nl] != '\n') {
-                    nl++;
-                }
-                size_t llen = nl - pos;
-                if (line_is_fence(m->text + pos, llen)) {
-                    line_push(a, RL_FENCE, mi, (int)pos, (int)llen, 0);
-                    in_code = !in_code;
-                } else if (llen == 0) {
-                    line_push(a, in_code ? RL_CODE : RL_TEXT, mi, (int)pos, 0,
-                              0);
-                } else {
-                    wrap_para(a, mi, m->text + pos, llen, pos,
-                              in_code ? RL_CODE : RL_TEXT, a->layout_width, 0);
-                }
-                if (nl == m->len) {
-                    break;
-                }
-                pos = nl + 1;
-            }
-        } else {
-            line_push(a, RL_TEXT, mi, 0, 0, 0);
+        text_start = a->nlines;
+    } else {
+        text_start = inc_text_start;
+        a->nlines = inc_row;
+        if (m->role == ROLE_ASSISTANT && m->rlen > 0 &&
+            !m->reason_collapsed && m->len > 0 && inc_row == text_start &&
+            (text_start == 0 ||
+             a->lines[text_start - 1].type != RL_GAP)) {
+            line_push(a, RL_GAP, mi, 0, 0, 0);
+            text_start = a->nlines;
+            m->lay_text_start = text_start;
         }
+        pos = inc_para;
+        in_code = inc_code;
+    }
+
+    if (m->len > 0) {
+        while (pos < m->len) {
+            size_t scan = pos;
+            if (inc && pos == inc_para && inc_off > scan) {
+                scan = inc_off;
+            }
+            size_t nl = scan;
+            while (nl < m->len && m->text[nl] != '\n') {
+                nl++;
+            }
+            size_t llen = nl - pos;
+            int line_code = in_code;
+            if (line_is_fence(m->text + pos, llen)) {
+                line_push(a, RL_FENCE, mi, (int)pos, (int)llen, 0);
+                mark_tail(m, pos, a->nlines - 1, 0, pos, line_code);
+                in_code = !in_code;
+            } else if (llen == 0) {
+                line_push(a, in_code ? RL_CODE : RL_TEXT, mi, (int)pos, 0, 0);
+                mark_tail(m, pos, a->nlines - 1, 0, pos, line_code);
+            } else {
+                size_t from = 0;
+                int cont = 0;
+                if (inc && pos == inc_para && inc_off > pos) {
+                    from = inc_off - pos;
+                    cont = inc_cont;
+                }
+                wrap_run(a, mi, m->text + pos, llen, pos,
+                         in_code ? RL_CODE : RL_TEXT, a->layout_width,
+                         from, cont, line_code, 1);
+            }
+            if (nl == m->len) {
+                break;
+            }
+            pos = nl + 1;
+            mark_tail(m, pos, a->nlines, 0, pos, in_code);
+        }
+    } else {
+        line_push(a, RL_TEXT, mi, 0, 0, 0);
+        mark_tail(m, 0, a->nlines - 1, 0, 0, 0);
+    }
+
+    if (inc) {
+        if (m->lay_text_start >= 0 && m->lay_text_start < a->nlines &&
+            a->lines[m->lay_text_start].msg == mi) {
+            a->lines[m->lay_text_start].head = 1;
+        }
+    } else {
         if (first < 0) {
             first = text_start;
         }
@@ -210,8 +287,9 @@ static void layout_message(App *a, int mi) {
             text_start < a->nlines) {
             a->lines[text_start].head = 1;
         }
-        line_push(a, RL_GAP, mi, 0, 0, 0);
+        m->lay_text_start = text_start;
     }
+    line_push(a, RL_GAP, mi, 0, 0, 0);
     if (m->streaming) {
         for (int i = a->nlines - 1; i >= 0; i--) {
             if (a->lines[i].msg != mi) {
@@ -219,6 +297,7 @@ static void layout_message(App *a, int mi) {
             }
             if (a->lines[i].type != RL_GAP) {
                 a->lines[i].cursor = 1;
+                m->lay_cursor = i + 1;
                 break;
             }
         }
@@ -226,10 +305,10 @@ static void layout_message(App *a, int mi) {
 }
 
 /*
- * TODO(perf): streaming only grows the last open line, but this still
- * rewraps the whole current message on every redraw (a full 200 KB wrap is
- * 1.27 ms).  Cache a per-message layout cursor and rebuild just the tail
- * once a message outgrows a few hundred KB.
+ * Cursor invariant: while lay_valid, m->text is append-only and the bytes
+ * before lay_off do not change.  msg_set, trim_trailing_ws, msg_append_reason,
+ * reason_toggle and a width change clear lay_valid; msg_append may keep it.
+ * A layout_from past nmsg means messages were removed, so rebuild from zero.
  */
 static void layout_build(App *a) {
     int keep = a->layout_from;
@@ -237,13 +316,32 @@ static void layout_build(App *a) {
         keep = 0;
     }
     if (keep > a->nmsg) {
-        keep = a->nmsg;
+        keep = 0;
     }
-    while (a->nlines > 0 && a->lines[a->nlines - 1].msg >= keep) {
-        a->nlines--;
+    int inc = 0;
+    if (keep >= 0 && keep < a->nmsg && keep == a->nmsg - 1) {
+        Msg *m = &a->msgs[keep];
+        const char *p = m->text ? m->text : "";
+        if (m->lay_valid && m->lay_off <= m->len &&
+            m->lay_para <= m->lay_off &&
+            m->lay_row >= m->lay_text_start &&
+            m->lay_row <= a->nlines &&
+            (m->lay_para == 0 || p[m->lay_para - 1] == '\n')) {
+            inc = 1;
+        }
     }
-    for (int i = keep; i < a->nmsg; i++) {
-        layout_message(a, i);
+    if (inc) {
+        while (a->nlines > 0 && a->lines[a->nlines - 1].msg > keep) {
+            a->nlines--;
+        }
+        layout_message(a, keep, 1);
+    } else {
+        while (a->nlines > 0 && a->lines[a->nlines - 1].msg >= keep) {
+            a->nlines--;
+        }
+        for (int i = keep; i < a->nmsg; i++) {
+            layout_message(a, i, 0);
+        }
     }
     a->layout_from = a->nmsg;
     a->layout_dirty = 0;
@@ -257,6 +355,7 @@ static void reason_toggle(App *a, int mi) {
     }
     m->reason_collapsed = !m->reason_collapsed;
     m->reason_user_set = 1;
+    m->lay_valid = 0;
     a->layout_from = mi;
     a->layout_dirty = 1;
     a->dirty = 1;
@@ -383,6 +482,9 @@ void draw_chat(App *a, int rows, int cols) {
         if (a->layout_width != text_width) {
             a->layout_width = text_width;
             a->layout_from = 0;
+            for (int i = 0; i < a->nmsg; i++) {
+                a->msgs[i].lay_valid = 0;
+            }
         }
         layout_build(a);
     }

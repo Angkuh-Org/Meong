@@ -394,6 +394,8 @@ static int tui_main(const Options *o) {
     }
 
     int rc = tui_run(&a);
+    jdoc_free(&a.stream_doc);
+    buf_free(&a.stream_buf);
     msgs_clear(&a);
     for (int i = 0; i < a.nmodels; i++) {
         free(a.models[i]);

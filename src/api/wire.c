@@ -8,7 +8,7 @@
 
 int extract_api_error(const char *json, size_t len, char *out,
                              size_t cap) {
-    JDoc d;
+    JDoc d = {0};
     char *msg = NULL;
     int parsed = jdoc_parse(&d, json, len) == 0;
     if (parsed) {
@@ -81,7 +81,7 @@ int extract_api_error(const char *json, size_t len, char *out,
 
 int extract_chat_text(const char *json, size_t len, Buf *out,
                              long *prompt_tokens, long *completion_tokens) {
-    JDoc d;
+    JDoc d = {0};
     if (jdoc_parse(&d, json, len) != 0) {
         return 0;
     }

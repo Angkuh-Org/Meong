@@ -5,12 +5,13 @@
 #include <stdio.h>
 #include <wchar.h>
 
+#include "json/json.h"
 #include "net/net.h"
 #include "util/util.h"
 
 #define APP_NAME "Meong"
 #ifndef APP_VERSION
-#define APP_VERSION "0.2.0"
+#define APP_VERSION "0.2.1"
 #endif
 #define DEFAULT_MODEL "cc/deepseek/deepseek-v4.1-flash"
 
@@ -37,6 +38,14 @@ typedef struct {
     size_t rcap;
     int streaming;
     int stopped;
+    size_t lay_off;
+    size_t lay_para;
+    int lay_row;
+    int lay_cont;
+    int lay_code;
+    int lay_valid;
+    int lay_text_start;
+    int lay_cursor;
     int has_stats;
     int reason_collapsed;
     int reason_user_set;
@@ -70,6 +79,8 @@ typedef struct {
     int initial_picker;
 
     Stream *stream;
+    JDoc stream_doc;
+    Buf stream_buf;
     int streaming;
     int gen_idx;
     double gen_start;

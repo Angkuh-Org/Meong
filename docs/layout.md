@@ -52,8 +52,9 @@ id, the first entry.
 
 `chat.c` selects turns newest-first within `CHAT_BUDGET` and emits them
 chronologically, adding a one-line system note when older turns are dropped.
-Its SSE callback appends `delta.content` to the reply and
-`reasoning_content`/`reasoning` to the dimmed reasoning line. It owns
+Its SSE callback reuses one `JDoc`/`Buf` pair on `App`, appends `delta.content`
+to the reply and `reasoning_content`/`reasoning` to the dimmed reasoning line,
+and falls back to the full parser on error or odd frames. It owns
 `start_generation()`, `finish_generation()`, `cancel_generation()`, and
 `drain_queue()`. `commands.c` implements `/model`, `/models`, `/system`,
 `/clear`, `/retry`, `/help`, and `/quit`.
@@ -67,10 +68,12 @@ non-TUI paths; `usage()` and `version()` print the help and version text.
 
 ## `src/json/`
 
-`jsmn.h` is the vendored MIT tokenizer. `json.c` is the only code that touches
-tokens: it grows the token array on demand, walks objects and arrays, and
-unescapes strings including surrogate pairs. `_Static_assert`s pin the wrapper's
-token enum to jsmn's.
+`jsmn.h` is the vendored MIT tokenizer. `json.c` owns the reusable `JDoc`
+wrapper (a combined token+skip block, grown on demand), object/array traversal,
+string unescaping including surrogate pairs, and `jdelta_scan()`, the fast
+OpenAI delta/usage scanner that falls back to jsmn for errors and odd shapes.
+`_Static_assert`s pin the wrapper's token enum to jsmn's; the skip table and the
+fast scanner each have a differential harness in `tests/c/`.
 
 ## `src/net/`
 
@@ -97,9 +100,10 @@ physical lines.
 mouse), the header, status, input, and footer chrome, the splash and scrollbar,
 and the `ui_draw()` frame. `view.c` owns `RLine`, the wrapped row model behind
 the transcript: paragraph wrapping, code fences, reasoning lines, notes,
-`draw_slice()` for UTF-8 and wide cells, and the click hit-test that expands or
-folds a reasoning block. `panel.c` draws the model picker and help overlays.
-`input.c` is the composer: insert, delete, word kill, and history.
+`draw_slice()` for UTF-8 and wide cells, the click hit-test that expands or
+folds a reasoning block, and a per-message tail cursor so streaming re-wraps
+only the last row plus the new bytes. `panel.c` draws the model picker and help
+overlays. `input.c` is the composer: insert, delete, word kill, and history.
 
 ## `src/util/`
 
@@ -112,7 +116,9 @@ comparison, count formatting, and file helpers including atomic writes and
 ## `tools/` and `tests/`
 
 `tools/rulecheck.c` is the gate's CLI: it loads `MEONG_RULEBOOK` and audits a
-directory. `tests/test.sh` builds the client, proves the rulebook rejects a
-2001-line file, runs `tests/python/mock_paig.py` for the wire paths, runs
+directory. `tests/c/` holds the differential harnesses (JSON skip/reuse, fast
+delta scanner, layout truncation, streaming cursor) and the layout benchmark.
+`tests/test.sh` builds the client, proves the rulebook rejects a 2001-line file,
+runs `tests/python/mock_paig.py` for the wire paths, runs
 `tests/python/tui_test.py` as the pty test, and then makes its own tmux
 `capture-pane` screen assertions for the TUI.

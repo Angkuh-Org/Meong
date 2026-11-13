@@ -74,7 +74,7 @@ static int jgeti_old(const JDoc *d, int arr, int index) {
 static int fails;
 
 static void check(const char *name, const char *text) {
-    JDoc d;
+    JDoc d = {0};
     if (jdoc_parse(&d, text, strlen(text)) != 0) {
         printf("FAIL %s: parse\n", name);
         fails++;
@@ -123,6 +123,114 @@ static void check(const char *name, const char *text) {
         }
     }
     jdoc_free(&d);
+}
+
+static void check_reuse(void) {
+    static const char *a =
+        "{\"choices\":[{\"delta\":{\"content\":\"hi \\\"q\\\"\"}}]}";
+    static const char *b =
+        "{\"data\":[{\"id\":\"a\"},{\"id\":\"b\"}],\"nested\":{\"x\":[1,2]}}";
+    static const char *bad = "{\"choices\":[";
+    JDoc d = {0};
+    if (jdoc_parse(&d, a, strlen(a)) != 0) {
+        printf("FAIL reuse: first parse\n");
+        fails++;
+        return;
+    }
+    int root = jdoc_root(&d);
+    int choices = jget(&d, root, "choices");
+    int c0 = jgeti(&d, choices, 0);
+    int delta = jget(&d, c0, "delta");
+    int content = jget(&d, delta, "content");
+    Buf out;
+    buf_init(&out);
+    if (content < 0 || jstring(&d, content, &out) != 0 ||
+        out.len != strlen("hi \"q\"") ||
+        memcmp(out.p, "hi \"q\"", out.len) != 0) {
+        printf("FAIL reuse: first content\n");
+        fails++;
+    }
+    buf_free(&out);
+
+    int cap = d.cap;
+    for (int i = 0; i < 100; i++) {
+        if (jdoc_parse(&d, a, strlen(a)) != 0) {
+            printf("FAIL reuse: repeated parse\n");
+            fails++;
+            break;
+        }
+    }
+    if (d.cap != cap) {
+        printf("FAIL reuse: capacity grew on equal documents\n");
+        fails++;
+    }
+
+    Buf big;
+    buf_init(&big);
+    buf_adds(&big, "{\"a\":[");
+    for (int i = 0; i < 300; i++) {
+        char num[16];
+        snprintf(num, sizeof num, i ? ",%d" : "%d", i);
+        buf_adds(&big, num);
+    }
+    buf_adds(&big, "]}");
+    if (jdoc_parse(&d, big.p, big.len) != 0) {
+        printf("FAIL reuse: growth document\n");
+        fails++;
+    } else {
+        if (d.cap <= 256) {
+            printf("FAIL reuse: token capacity did not grow\n");
+            fails++;
+        }
+        root = jdoc_root(&d);
+        int arr = jget(&d, root, "a");
+        if (jlen(&d, arr) != 300) {
+            printf("FAIL reuse: grown array length\n");
+            fails++;
+        }
+        int last = jgeti(&d, arr, 299);
+        if (last < 0 || jint(&d, last, -1) != 299) {
+            printf("FAIL reuse: grown array tail\n");
+            fails++;
+        }
+    }
+    buf_free(&big);
+    if (jdoc_parse(&d, a, strlen(a)) != 0) {
+        printf("FAIL reuse: parse after growth\n");
+        fails++;
+    }
+
+    if (jdoc_parse(&d, b, strlen(b)) != 0) {
+        printf("FAIL reuse: second document\n");
+        fails++;
+    } else {
+        root = jdoc_root(&d);
+        int data = jget(&d, root, "data");
+        int b1 = jgeti(&d, data, 1);
+        int id = jget(&d, b1, "id");
+        if (id < 0 || jtype(&d, id) != J_STRING) {
+            printf("FAIL reuse: second document lookup\n");
+            fails++;
+        }
+    }
+
+    if (jdoc_parse(&d, bad, strlen(bad)) == 0) {
+        printf("FAIL reuse: malformed document parsed\n");
+        fails++;
+    }
+    if (d.ntok != 0) {
+        printf("FAIL reuse: stale token count after a failure\n");
+        fails++;
+    }
+    if (jdoc_parse(&d, a, strlen(a)) != 0) {
+        printf("FAIL reuse: parse after a failure\n");
+        fails++;
+    }
+    jdoc_free(&d);
+    if (d.tok || d.skip || d.cap || d.ntok || d.text) {
+        printf("FAIL reuse: jdoc_free left state behind\n");
+        fails++;
+    }
 }
 
 static size_t gen(char *buf, size_t n, size_t cap, int depth, unsigned *seed) {
@@ -194,6 +302,8 @@ int main(void) {
         snprintf(name, sizeof name, "rand%d", r);
         check(name, buf);
     }
+
+    check_reuse();
 
     printf(fails ? "FAILED: %d mismatch(es)\n"
                  : "ALL SKIP/JGET CHECKS IDENTICAL\n",

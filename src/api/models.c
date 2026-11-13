@@ -29,7 +29,7 @@ static int parse_models(const Buf *body, char ***out, int *out_n, char *err,
         snprintf(err, errlen, "empty model list");
         return -1;
     }
-    JDoc d;
+    JDoc d = {0};
     if (jdoc_parse(&d, body->p, body->len) != 0) {
         snprintf(err, errlen, "model list is not valid JSON");
         return -1;

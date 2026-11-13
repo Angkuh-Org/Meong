@@ -65,6 +65,7 @@ void msgs_clear(App *a) {
     a->top = 0;
     a->follow = 1;
     a->new_below = 0;
+    a->layout_from = 0;
     a->layout_dirty = 1;
     a->dirty = 1;
 }
@@ -139,6 +140,7 @@ void msg_set(Msg *m, const char *text) {
     m->len = 0;
     m->cap = 0;
     m->chars = 0;
+    m->lay_valid = 0;
     if (text && *text) {
         size_t n = strlen(text);
         m->text = xmalloc(n + 1);
@@ -196,10 +198,12 @@ int msg_append(Msg *m, const char *s, size_t n) {
 }
 
 int msg_append_reason(Msg *m, const char *s, size_t n) {
+    m->lay_valid = 0;
     return msg_append_buf(&m->reason, &m->rlen, &m->rcap, NULL, s, n);
 }
 
 void trim_trailing_ws(Msg *m) {
+    m->lay_valid = 0;
     if (m->text) {
         while (m->len > 0 && isspace((unsigned char)m->text[m->len - 1])) {
             m->len--;

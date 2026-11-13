@@ -61,6 +61,14 @@ $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     || fail "json skip table diverged from the recursive walk"
 ok "json: cached skip matches the recursive walk"
 
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
+    -o "$TMP/jdelta_test" tests/c/jdelta_test.c src/json/json.c \
+    src/util/util.c \
+    || fail "jdelta test did not compile"
+"$TMP/jdelta_test" >/dev/null \
+    || fail "fast delta scanner diverged from jsmn"
+ok "json: fast delta scanner matches jsmn"
+
 LAYOUT_SRCS=$(find src -name '*.c' ! -path 'src/rules/*' \
     ! -path 'src/main.c' ! -path 'src/ui/view.c' | sort)
 # shellcheck disable=SC2086
@@ -71,6 +79,23 @@ $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc -Isrc/ui \
 "$TMP/layout_truncate_test" >/dev/null \
     || fail "layout truncation left stale rows"
 ok "layout: /retry truncation drops removed rows"
+
+# shellcheck disable=SC2086
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc -Isrc/ui \
+    -o "$TMP/layout_stream_test" \
+    tests/c/layout_stream_test.c $LAYOUT_SRCS $NC_LIBS \
+    || fail "layout stream test did not compile"
+"$TMP/layout_stream_test" >/dev/null \
+    || fail "incremental layout diverged from a full rebuild"
+ok "layout: streaming cursor matches a full rebuild"
+
+# shellcheck disable=SC2086
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc -Isrc/ui \
+    -o "$TMP/layout_bench" tests/c/layout_bench.c $LAYOUT_SRCS $NC_LIBS \
+    || fail "layout benchmark did not compile"
+"$TMP/layout_bench" stream 4096 64 >/dev/null \
+    || fail "layout benchmark failed"
+ok "layout: benchmark harness builds and runs"
 
 PORT=$(python3 - <<'PY'
 import socket
