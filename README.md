@@ -78,8 +78,10 @@ row uses the same local mock on both sides. Method and raw numbers:
 | `ctrl-c` | cancel a reply; quit when idle |
 | `ctrl-d` | quit on empty input |
 | `ctrl-l` | redraw |
+| `ctrl-o` | expand or fold the last reasoning block |
 | `up` / `down` | input history |
 | mouse wheel | scroll |
+| click / tap thinking | expand or fold reasoning |
 
 ## Commands
 
@@ -103,7 +105,7 @@ row uses the same local mock on both sides. Method and raw numbers:
 | `MEONG_CONFIG_DIR` | overrides the state directory |
 | `MEONG_CACHE_DIR` | overrides the model cache directory |
 | `MEONG_ASCII` | force ASCII borders and symbols |
-| `MEONG_NO_MOUSE` | disable mouse capture |
+| `MEONG_NO_MOUSE` | disable mouse and touch input |
 | `NO_COLOR` | disable color |
 | `MEONG_WIRE_DEBUG` | dump parsed HTTP/SSE lines to stderr |
 
@@ -114,7 +116,10 @@ The gateway does not authenticate inbound requests. Keep PAIG on loopback.
 - Transport is a hand-rolled nonblocking HTTP/1.1 client, one connection per
   request. It handles chunked transfer, SSE `data:` frames, `[DONE]`, and plain
   JSON error bodies that arrive without SSE framing.
-- `reasoning_content` / `reasoning` deltas are shown dimmed above the answer.
+- `reasoning_content` / `reasoning` deltas are shown dimmed above the answer
+  while streaming, then fold when the reply finishes; a cancelled reply stays
+  open. Click or tap the thinking line — or any reasoning line — to expand or
+  fold it, or press `ctrl-o` for the last reasoning block.
 - Requests keep the newest ~200 KB of user/assistant text. Older turns are
   dropped, replaced by a one-line system note, and the footer shows `trimmed`;
   the visible transcript keeps everything until `/clear`.

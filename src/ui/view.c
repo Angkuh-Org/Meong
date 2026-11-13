@@ -164,10 +164,12 @@ static void layout_message(App *a, int mi) {
         if (m->role == ROLE_ASSISTANT && m->rlen > 0) {
             line_push(a, RL_REASON_HEAD, mi, 0, 0, 0);
             first = a->nlines - 1;
-            wrap_para(a, mi, m->reason, m->rlen, 0, RL_REASON,
-                      a->layout_width, 0);
-            if (m->len > 0) {
-                line_push(a, RL_GAP, mi, 0, 0, 0);
+            if (!m->reason_collapsed) {
+                wrap_para(a, mi, m->reason, m->rlen, 0, RL_REASON,
+                          a->layout_width, 0);
+                if (m->len > 0) {
+                    line_push(a, RL_GAP, mi, 0, 0, 0);
+                }
             }
         }
         int text_start = a->nlines;
@@ -248,6 +250,46 @@ static void layout_build(App *a) {
     a->last_layout = now_sec();
 }
 
+static void reason_toggle(App *a, int mi) {
+    Msg *m = &a->msgs[mi];
+    if (m->rlen == 0) {
+        return;
+    }
+    m->reason_collapsed = !m->reason_collapsed;
+    m->reason_user_set = 1;
+    a->layout_from = mi;
+    a->layout_dirty = 1;
+    a->dirty = 1;
+}
+
+void chat_toggle_reason(App *a) {
+    for (int i = a->nmsg - 1; i >= 0; i--) {
+        if (a->msgs[i].role == ROLE_ASSISTANT && a->msgs[i].rlen > 0) {
+            reason_toggle(a, i);
+            return;
+        }
+    }
+}
+
+int chat_click(App *a, int y) {
+    if (a->chat_y0 < 0 || y < a->chat_y0 || y >= a->chat_end) {
+        return 0;
+    }
+    int li = a->chat_top + (y - a->chat_y0);
+    if (li < 0 || li >= a->nlines) {
+        return 0;
+    }
+    RLine *l = &a->lines[li];
+    if (l->type != RL_REASON_HEAD && l->type != RL_REASON) {
+        return 0;
+    }
+    if (l->msg < 0 || l->msg >= a->nmsg) {
+        return 0;
+    }
+    reason_toggle(a, l->msg);
+    return 1;
+}
+
 int draw_slice(int y, int x, const char *s, int off, int len, int maxx,
                       int pair, int attr, int *endx) {
     int cx = x;
@@ -324,6 +366,9 @@ int draw_slice(int y, int x, const char *s, int off, int len, int maxx,
 void draw_chat(App *a, int rows, int cols) {
     int y0 = 1;
     int h = chat_height(a, rows);
+    a->chat_y0 = -1;
+    a->chat_top = 0;
+    a->chat_end = y0 + h;
     int text_width = cols - 6;
     if (text_width < 10) {
         text_width = 10;
@@ -357,6 +402,8 @@ void draw_chat(App *a, int rows, int cols) {
     if (a->follow && a->nlines < h) {
         y = y0 + (h - a->nlines);
     }
+    a->chat_y0 = y;
+    a->chat_top = a->top;
     int maxx = cols - 3;
     for (int i = 0; i < h; i++) {
         int li = a->top + i;
@@ -440,8 +487,12 @@ void draw_chat(App *a, int rows, int cols) {
         int text_pair = m->role == ROLE_USER ? P_USER : P_BASE;
         int text_attr = 0;
         if (l->type == RL_REASON_HEAD) {
+            int tx = 4;
             wattrset(stdscr, pair_attr(a, P_DIM));
-            mvaddstr(y, 4, "thinking");
+            mvaddstr(y, tx, "thinking");
+            mvaddstr(y, tx + (int)sizeof "thinking",
+                     m->reason_collapsed ? sym_fold_closed(a)
+                                         : sym_fold_open(a));
             y++;
             continue;
         }

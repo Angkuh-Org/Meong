@@ -17,6 +17,7 @@ MODELS = [
     "mock/slowerror",
     "mock/error",
     "mock/error200",
+    "mock/reasononly",
 ]
 CHUNKS = [3, 11, 1, 7, 19, 5, 13, 2]
 
@@ -163,6 +164,16 @@ class Handler(BaseHTTPRequestHandler):
                 sse_frame(chunk_obj(model, {"content": "slow "})),
                 sse_frame(chunk_obj(model, {"content": "error "})),
                 b'data: {"error":{"message":"mock queue failure"}}\n\n',
+            ]
+            payload = b"".join(frames)
+        elif model == "mock/reasononly":
+            frames = [
+                sse_frame(
+                    chunk_obj(model, {"reasoning_content": "thinking a little "})
+                ),
+                sse_frame(chunk_obj(model, {"reasoning_content": "with no answer"})),
+                sse_frame(usage_obj(model)),
+                b"data: [DONE]\n\n",
             ]
             payload = b"".join(frames)
         else:

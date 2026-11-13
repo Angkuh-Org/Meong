@@ -88,6 +88,13 @@ static void handle_mouse(App *a) {
         down = 1;
     }
 #endif
+    if (a->help_open) {
+        if (ev.bstate & BUTTON1_PRESSED) {
+            a->help_open = 0;
+            a->dirty = 1;
+        }
+        return;
+    }
     if (a->picker_open) {
         if (up && a->picker_sel > 0) {
             a->picker_sel--;
@@ -102,6 +109,8 @@ static void handle_mouse(App *a) {
         chat_scroll(a, 3);
     } else if (down) {
         chat_scroll(a, -3);
+    } else if (ev.bstate & BUTTON1_PRESSED) {
+        chat_click(a, ev.y);
     }
 }
 
@@ -220,6 +229,10 @@ static void handle_key(App *a, wint_t wch, int special) {
         a->dirty = 1;
         return;
     }
+    if (wch == 15) {
+        chat_toggle_reason(a);
+        return;
+    }
     if (wch == 7) {
         scroll_bottom(a);
         return;
@@ -323,6 +336,7 @@ static int tui_main(const Options *o) {
     memset(&a, 0, sizeof a);
     a.color = 1;
     a.mouse = 1;
+    a.chat_y0 = -1;
     a.unicode = 1;
     a.hist_pos = -1;
     a.gen_idx = -1;

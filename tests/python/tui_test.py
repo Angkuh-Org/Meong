@@ -162,6 +162,9 @@ def main():
         s.send(b"hello\r")
         if not s.wait_for("ctx 42", 12):
             fail("stream never finished", s)
+        s.send(b"\x0f")
+        if not s.wait_for("thinking a little", 5):
+            fail("ctrl-o did not unfold reasoning without a mouse", s)
         s.send(b"/help\r")
         if not s.wait_for("commands", 5):
             fail("help overlay did not open", s)

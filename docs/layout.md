@@ -96,10 +96,10 @@ physical lines.
 `ui.c` handles terminal and theme setup (locale, UTF-8 detection, colour pairs,
 mouse), the header, status, input, and footer chrome, the splash and scrollbar,
 and the `ui_draw()` frame. `view.c` owns `RLine`, the wrapped row model behind
-the transcript: paragraph wrapping, code fences, reasoning lines, notes, and
-`draw_slice()` for UTF-8 and wide cells. `panel.c` draws the model picker and
-help overlays. `input.c` is the composer: insert, delete, word kill, and
-history.
+the transcript: paragraph wrapping, code fences, reasoning lines, notes,
+`draw_slice()` for UTF-8 and wide cells, and the click hit-test that expands or
+folds a reasoning block. `panel.c` draws the model picker and help overlays.
+`input.c` is the composer: insert, delete, word kill, and history.
 
 ## `src/util/`
 

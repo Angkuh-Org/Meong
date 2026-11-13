@@ -54,7 +54,7 @@ void usage(FILE *out) {
             "  --stream           stream tokens with --oneshot\n"
             "  --list-models      print model ids and exit\n"
             "  --ascii            ASCII-only chrome\n"
-            "  --no-mouse         disable mouse wheel scrolling\n"
+            "  --no-mouse         disable mouse and touch input\n"
             "  --no-color         disable color\n"
             "  -h, --help         this text\n"
             "  -V, --version      version\n"
