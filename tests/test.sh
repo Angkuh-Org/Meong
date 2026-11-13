@@ -55,7 +55,7 @@ ok "rulebook: loc-per-file law bites"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/json_skip_test" \
-    tests/json_skip_test.c src/json/json.c src/util/util.c \
+    tests/c/json_skip_test.c src/json/json.c src/util/util.c \
     || fail "json skip test did not compile"
 "$TMP/json_skip_test" >/dev/null \
     || fail "json skip table diverged from the recursive walk"
@@ -66,7 +66,7 @@ LAYOUT_SRCS=$(find src -name '*.c' ! -path 'src/rules/*' \
 # shellcheck disable=SC2086
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc -Isrc/ui \
     -o "$TMP/layout_truncate_test" \
-    tests/layout_truncate_test.c $LAYOUT_SRCS $NC_LIBS \
+    tests/c/layout_truncate_test.c $LAYOUT_SRCS $NC_LIBS \
     || fail "layout test did not compile"
 "$TMP/layout_truncate_test" >/dev/null \
     || fail "layout truncation left stale rows"

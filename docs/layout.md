@@ -17,7 +17,7 @@ src/
   ui/     chrome, layout, panels, composer
   util/   buffers and string helpers
 tools/    rulecheck, the host-side rulebook gate
-tests/    mock gateway and pty/tmux TUI tests
+tests/    shell harness, C harnesses (tests/c/), pty/tmux TUI tests
 ```
 
 ## `src/main.c`
