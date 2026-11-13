@@ -350,8 +350,9 @@ int cli_list_models(const Options *o) {
         return 1;
     }
     char **ids = NULL;
+    ModelCaps *caps = NULL;
     int n = 0;
-    if (models_fetch_live(&ep, &ids, &n, err, sizeof err) != 0) {
+    if (models_fetch_live(&ep, &ids, &caps, &n, err, sizeof err) != 0) {
         fprintf(stderr, "Meong: %s\n", err);
         free(url);
         return 1;
@@ -360,6 +361,7 @@ int cli_list_models(const Options *o) {
         printf("%s\n", ids[i]);
     }
     models_free(ids, n);
+    free(caps);
     free(url);
     return 0;
 }

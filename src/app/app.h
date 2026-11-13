@@ -57,6 +57,22 @@ typedef struct {
 /* ui/view.c owns the layout row definition. */
 typedef struct RLine RLine;
 
+/*
+ * Capability fields are tri-state: -1 means the gateway did not report the
+ * field, 0 and 1 are explicit upstream answers.
+ */
+typedef struct {
+    long long context_window;
+    long long max_output_tokens;
+    double in_cost;
+    double out_cost;
+    signed char vision;
+    signed char function_calling;
+    signed char reasoning;
+    signed char prompt_caching;
+    signed char estimated;
+} ModelCaps;
+
 typedef struct {
     Endpoint ep;
     char *url;
@@ -66,6 +82,7 @@ typedef struct {
     int nmsg;
     int msgcap;
     char **models;
+    ModelCaps *model_caps;
     int nmodels;
 
     int picker_open;
@@ -111,6 +128,14 @@ typedef struct {
     int brand_y;
     int brand_x0;
     int brand_x1;
+    int model_y;
+    int model_x0;
+    int model_x1;
+    int model_open;
+    int model_py0;
+    int model_py1;
+    int model_px0;
+    int model_px1;
     int pet_y0;
     int pet_y1;
     int pet_x0;

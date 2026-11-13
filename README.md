@@ -82,6 +82,7 @@ row uses the same local mock on both sides. Method and raw numbers:
 | `ctrl-l` | redraw |
 | `ctrl-o` | expand or fold the last reasoning block |
 | `f1` / click `Meong` | pet the cat (live cat card) |
+| `f2` / click the model | show the model capability card |
 | `up` / `down` | input history |
 | mouse wheel | scroll |
 | click / tap thinking | expand or fold reasoning |
@@ -126,6 +127,12 @@ The gateway does not authenticate inbound requests. Keep PAIG on loopback.
 - Clicking `Meong` (or `f1`) pets the cat: the card reacts, counts pets, and
   shows the live model, message and token totals, and mood. Typing closes it
   and still reaches the composer.
+- Clicking the provider/model in the header (or `f2`) opens the capability
+  card: context window, output limit, vision/tools/reasoning/caching, and cost
+  when the gateway reports them. Fields the gateway did not report are listed
+  as `not reported:`; values filled by PAIG from models.dev carry a
+  `~ models.dev estimate` footer. `/models` refreshes both the catalogue and
+  the card.
 - `reasoning_content` / `reasoning` deltas are shown dimmed above the answer
   while streaming, then fold when the reply finishes; a cancelled reply stays
   open. Click or tap the thinking line — or any reasoning line — to expand or

@@ -19,6 +19,18 @@ MODELS = [
     "mock/error200",
     "mock/reasononly",
 ]
+CAPABILITIES = {
+    "mock/split": {
+        "context_window": 131072,
+        "max_output_tokens": 65536,
+        "supports_function_calling": True,
+        "supports_reasoning": False,
+        "supports_prompt_caching": True,
+        "input_cost_per_token": 0,
+        "output_cost_per_token": 0,
+        "estimated": True,
+    }
+}
 CHUNKS = [3, 11, 1, 7, 19, 5, 13, 2]
 
 
@@ -79,10 +91,17 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"ok": True, "service": "mock-paig"})
             return
         if self.path.rstrip("/") == "/v1/models":
-            data = [
-                {"id": m, "object": "model", "created": 1, "owned_by": "mock"}
-                for m in MODELS
-            ]
+            data = []
+            for m in MODELS:
+                entry = {
+                    "id": m,
+                    "object": "model",
+                    "created": 1,
+                    "owned_by": "mock",
+                }
+                if m in CAPABILITIES:
+                    entry["capabilities"] = CAPABILITIES[m]
+                data.append(entry)
             self._json(200, {"object": "list", "data": data})
             return
         self._json(404, {"error": {"message": "not found"}})

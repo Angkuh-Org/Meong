@@ -123,6 +123,8 @@ void picker_filter_append(App *a, char c);
 void picker_draw(App *a, int rows, int cols);
 void help_draw(App *a, int rows, int cols);
 void pet_draw(App *a, int rows, int cols);
+void model_info_open(App *a);
+void model_info_draw(App *a, int rows, int cols);
 void slash_draw(App *a, int rows, int cols, const int *idx, int n);
 
 void history_free(App *a);

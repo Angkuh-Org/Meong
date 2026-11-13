@@ -117,6 +117,7 @@ void picker_open(App *a) {
     a->picker_open = 1;
     a->help_open = 0;
     a->pet_open = 0;
+    a->model_open = 0;
     a->picker_filter[0] = '\0';
     a->picker_filter_len = 0;
     a->picker_sel = 0;
@@ -303,6 +304,7 @@ void help_draw(App *a, int rows, int cols) {
         "  ctrl-c         cancel a reply, or quit when idle",
         "  ctrl-l         redraw",
         "  ctrl-o/click   fold reasoning; f1 pets Meong",
+        "  f2             model capabilities (or click the header)",
         "press any key to close",
     };
     int n = (int)(sizeof lines / sizeof lines[0]);

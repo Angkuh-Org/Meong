@@ -76,6 +76,7 @@ static void pet_meong(App *a) {
     a->pet_open = 1;
     a->help_open = 0;
     a->picker_open = 0;
+    a->model_open = 0;
     a->dirty = 1;
 }
 
@@ -126,6 +127,18 @@ static void handle_mouse(App *a) {
         a->dirty = 1;
         return;
     }
+    if (a->model_open) {
+        if (ev.bstate & BUTTON1_PRESSED) {
+            int inside = a->model_py0 >= 0 && ev.y >= a->model_py0 &&
+                         ev.y <= a->model_py1 && ev.x >= a->model_px0 &&
+                         ev.x <= a->model_px1;
+            if (!inside) {
+                a->model_open = 0;
+            }
+            a->dirty = 1;
+        }
+        return;
+    }
     if (slash_open(a)) {
         if (up) {
             slash_move(a, -1);
@@ -158,6 +171,11 @@ static void handle_mouse(App *a) {
             pet_meong(a);
             return;
         }
+        if (a->model_y >= 0 && ev.y == a->model_y &&
+            ev.x >= a->model_x0 && ev.x < a->model_x1) {
+            model_info_open(a);
+            return;
+        }
         chat_click(a, ev.y);
     }
 }
@@ -175,6 +193,15 @@ static void handle_key(App *a, wint_t wch, int special) {
         }
         if (wch == KEY_F(1)) {
             pet_meong(a);
+            return;
+        }
+        if (wch == KEY_F(2)) {
+            model_info_open(a);
+            return;
+        }
+        if (a->model_open) {
+            a->model_open = 0;
+            a->dirty = 1;
             return;
         }
         if (a->pet_open) {
@@ -268,7 +295,10 @@ static void handle_key(App *a, wint_t wch, int special) {
         return;
     }
     if (wch == 3) {
-        if (a->pet_open) {
+        if (a->model_open) {
+            a->model_open = 0;
+            a->dirty = 1;
+        } else if (a->pet_open) {
             a->pet_open = 0;
             a->dirty = 1;
         } else if (a->help_open) {
@@ -282,6 +312,10 @@ static void handle_key(App *a, wint_t wch, int special) {
             a->quit = 1;
         }
         return;
+    }
+    if (a->model_open) {
+        a->model_open = 0;
+        a->dirty = 1;
     }
     if (a->pet_open) {
         a->pet_open = 0;
@@ -449,14 +483,17 @@ static int tui_main(const Options *o) {
     }
 
     char *saved_model = state_load_model();
-    models_load_cache(&a);
-    if (a.nmodels == 0) {
-        fprintf(stderr, "Meong: loading models from %s\n", a.url);
+    int legacy_cache = models_load_cache(&a);
+    if (a.nmodels == 0 || legacy_cache) {
+        if (a.nmodels == 0) {
+            fprintf(stderr, "Meong: loading models from %s\n", a.url);
+        }
         char **ids = NULL;
+        ModelCaps *caps = NULL;
         int n = 0;
-        if (models_fetch_live(&a.ep, &ids, &n, err, sizeof err) == 0) {
-            models_replace(&a, ids, n);
-        } else {
+        if (models_fetch_live(&a.ep, &ids, &caps, &n, err, sizeof err) == 0) {
+            models_replace(&a, ids, caps, n);
+        } else if (a.nmodels == 0) {
             snprintf(a.models_warn, sizeof a.models_warn,
                      "gateway unreachable at %.480s (%.500s)", a.url, err);
         }
@@ -484,10 +521,7 @@ static int tui_main(const Options *o) {
     jdoc_free(&a.stream_doc);
     buf_free(&a.stream_buf);
     msgs_clear(&a);
-    for (int i = 0; i < a.nmodels; i++) {
-        free(a.models[i]);
-    }
-    free(a.models);
+    models_clear(&a);
     free(a.model);
     free(a.system_prompt);
     free(a.url);
