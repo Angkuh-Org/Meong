@@ -61,7 +61,7 @@ void usage(FILE *out) {
             "\n"
             "keys:\n"
             "  enter send   tab models   pgup/pgdn scroll   ctrl-c cancel/quit\n"
-            "  ctrl-g bottom   ctrl-t top   ctrl-l redraw   /help commands\n");
+            "  ctrl-g bottom   ctrl-t top   ctrl-l redraw   /help or ? commands\n");
 }
 
 void version(void) {

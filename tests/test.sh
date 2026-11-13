@@ -196,7 +196,7 @@ if command -v tmux >/dev/null 2>&1; then
     BIN_ABS=$(readlink -f "$BIN")
     TMUX_SESS="Meong-gap-$$"
     tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
-    tmux new-session -d -s "$TMUX_SESS" -x 110 -y 40 \
+    tmux new-session -d -s "$TMUX_SESS" -x 110 -y 40 -c "$PWD" \
         "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
          MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
          '$BIN_ABS' --url '$URL' --model mock/split --no-mouse"
@@ -211,7 +211,7 @@ if command -v tmux >/dev/null 2>&1; then
     done
     tmux send-keys -l -t "$TMUX_SESS" 'hello'
     tmux send-keys -t "$TMUX_SESS" Enter
-    for needle in 'Hello, Meong' '🌊🐟' 'int x = 1;' 'ctx 42'; do
+    for needle in 'Hello, Meong' '🌊🐟' 'int x = 1;' 'ctx <1%'; do
         i=0
         while [ "$i" -lt 100 ]; do
             if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
@@ -225,6 +225,12 @@ if command -v tmux >/dev/null 2>&1; then
             grep -Fq "$needle" || fail "streamed reply missing: $needle"
     done
     ok "streamed reply rendered on screen"
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'enter send | ? help' \
+        || fail "idle footer lost the help hint"
+    if tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'tab models'; then
+        fail "idle footer still advertises the old tab hint"
+    fi
+    ok "footer uses pipes and the ? help hint"
     tmux send-keys -l -t "$TMUX_SESS" 'aku'
     found=0
     i=0
@@ -305,7 +311,7 @@ if command -v tmux >/dev/null 2>&1; then
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -Fq 'Meong · help'; then
+            grep -Fq 'Meong | help'; then
             break
         fi
         i=$((i + 1))
@@ -334,7 +340,7 @@ if command -v tmux >/dev/null 2>&1; then
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -Fq 'generating'; then
+            grep -Fq ' ch'; then
             break
         fi
         i=$((i + 1))
@@ -375,7 +381,7 @@ if command -v tmux >/dev/null 2>&1; then
     done
     tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq '❯ sec' \
         || fail "composer rejected typing while streaming"
-    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'generating' \
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq ' ch' \
         || fail "stream ended before the queued prompt was entered"
     tmux send-keys -l -t "$TMUX_SESS" 'ond'
     tmux send-keys -t "$TMUX_SESS" Enter
@@ -389,7 +395,7 @@ if command -v tmux >/dev/null 2>&1; then
         sleep 0.05
     done
     pane=$(tmux capture-pane -p -t "$TMUX_SESS")
-    gen_line=$(printf '%s\n' "$pane" | grep -n 'generating' | head -1 |
+    gen_line=$(printf '%s\n' "$pane" | grep -nE ' ch$' | head -1 |
         cut -d: -f1)
     label_line=$(printf '%s\n' "$pane" | grep -n 'queue ↓' | head -1 |
         cut -d: -f1)
@@ -399,14 +405,66 @@ if command -v tmux >/dev/null 2>&1; then
     [ -n "$gen_line" ] && [ -n "$label_line" ] && [ -n "$prompt_line" ] &&
         [ -n "$box_line" ] || fail "streaming status lines are missing"
     [ "$gen_line" -lt "$box_line" ] \
-        || fail "generating status is not above the composer"
+        || fail "status line is not above the composer"
     [ "$label_line" -eq $((gen_line + 1)) ] \
-        || fail "queue label is not directly under generating"
+        || fail "queue label is not directly under the status line"
     [ "$prompt_line" -eq $((gen_line + 2)) ] \
         || fail "queued prompt is not directly under the queue label"
     [ "$prompt_line" -lt "$box_line" ] \
         || fail "queued prompt is not above the composer"
     ok "composer stays editable, queue sits above the box"
+    tmux send-keys -t "$TMUX_SESS" C-c
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    TMUX_SESS="Meong-spin-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 110 -y 40 \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/slow --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'go'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq ' ch'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    first_spin=""
+    spin_changed=0
+    i=0
+    while [ "$i" -lt 10 ]; do
+        line=$(tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -F ' ch' | head -1)
+        [ -n "$line" ] || break
+        glyph=${line#  }
+        glyph=${glyph%% *}
+        case "$glyph" in
+            ▖|▘|▝|▗) ;;
+            *) fail "unexpected spinner glyph: $glyph" ;;
+        esac
+        layout=$(python3 -c 'import re,sys; print(1 if re.match(r"^  [▖▘▝▗] \d+\.\d+s +\S+ ch", sys.argv[1]) else 0)' "$line")
+        [ "$layout" = 1 ] || fail "status line layout changed: |$line|"
+        [ -n "$first_spin" ] || first_spin=$glyph
+        [ "$glyph" = "$first_spin" ] || spin_changed=1
+        i=$((i + 1))
+        sleep 0.1
+    done
+    [ "$spin_changed" = 1 ] || fail "spinner glyph never changed"
+    ok "status spinner rotates with a stable layout"
     tmux send-keys -t "$TMUX_SESS" C-c
     tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
     TMUX_SESS=""
@@ -433,11 +491,17 @@ if command -v tmux >/dev/null 2>&1; then
         *) fail "header does not start with the pipe-separated brand" ;;
     esac
     case "$header" in
-        *'| split'*) ;;
-        *) fail "header lost the model tail after the pipe" ;;
+        *'mock/split'*) ;;
+        *) fail "header lost the full model id" ;;
     esac
     case "$header" in
         *'·'*) fail "header still uses the dot separator" ;;
+    esac
+    cwd=$(readlink "/proc/$(tmux list-panes -F '#{pane_pid}' -t "$TMUX_SESS")/cwd" 2>/dev/null || true)
+    [ -n "$cwd" ] || fail "cannot resolve the pane cwd"
+    case "$header" in
+        *"$cwd"*) ;;
+        *) fail "header lost the working directory" ;;
     esac
 
     click_rc() {
@@ -534,7 +598,7 @@ if command -v tmux >/dev/null 2>&1; then
     tmux send-keys -t "$TMUX_SESS" C-u
     ok "typing closes the pet card without eating the key"
 
-    click_rc 1 21
+    click_rc 1 11
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
@@ -650,7 +714,7 @@ if command -v tmux >/dev/null 2>&1; then
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -Fq 'ctx 42'; then
+            grep -Fq 'ctx <1%'; then
             break
         fi
         i=$((i + 1))
@@ -824,7 +888,7 @@ if command -v tmux >/dev/null 2>&1; then
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -Fq 'tok ·'; then
+            grep -Fq 'tok |'; then
             break
         fi
         i=$((i + 1))
@@ -1039,13 +1103,13 @@ if command -v tmux >/dev/null 2>&1; then
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -Fq 'Meong · help'; then
+            grep -Fq 'Meong | help'; then
             break
         fi
         i=$((i + 1))
         sleep 0.05
     done
-    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'Meong · help' \
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'Meong | help' \
         || fail "tab completion did not run /help"
     tmux send-keys -t "$TMUX_SESS" q
     tmux send-keys -l -t "$TMUX_SESS" '/help'
@@ -1054,13 +1118,13 @@ if command -v tmux >/dev/null 2>&1; then
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -Fq 'Meong · help'; then
+            grep -Fq 'Meong | help'; then
             break
         fi
         i=$((i + 1))
         sleep 0.05
     done
-    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'Meong · help' \
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'Meong | help' \
         || fail "an exact command plus enter no longer runs"
     ok "slash menu escape, tab, and exact-command enter"
 
@@ -1100,7 +1164,7 @@ if command -v tmux >/dev/null 2>&1; then
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -Fq 'generating'; then
+            grep -Fq ' ch'; then
             break
         fi
         i=$((i + 1))
@@ -1254,7 +1318,7 @@ if command -v tmux >/dev/null 2>&1; then
     i=0
     while [ "$i" -lt 200 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -Fq '| split'; then
+            grep -Fq 'mock/split'; then
             break
         fi
         i=$((i + 1))
@@ -1262,7 +1326,7 @@ if command -v tmux >/dev/null 2>&1; then
     done
     head -1 "$LEGACY/models" | grep -Fq '#meong-models-v3' \
         || fail "legacy cache was not migrated to v3"
-    click_rc 1 21
+    click_rc 1 11
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
@@ -1290,7 +1354,7 @@ if command -v tmux >/dev/null 2>&1; then
     i=0
     while [ "$i" -lt 200 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -Fq '| split'; then
+            grep -Fq 'mock/split'; then
             break
         fi
         i=$((i + 1))
@@ -1298,7 +1362,7 @@ if command -v tmux >/dev/null 2>&1; then
     done
     head -1 "$V2CACHE/models" | grep -Fq '#meong-models-v3' \
         || fail "v2 cache was not migrated to v3"
-    click_rc 1 21
+    click_rc 1 11
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |

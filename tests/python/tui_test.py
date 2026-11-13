@@ -160,7 +160,7 @@ def main():
         if not s.wait_for("ask anything"):
             fail("the chat screen never appeared", s)
         s.send(b"hello\r")
-        if not s.wait_for("ctx 42", 12):
+        if not s.wait_for("ctx <1%", 12):
             fail("stream never finished", s)
         s.send(b"\x0f")
         if not s.wait_for("thinking a little", 5):
@@ -206,12 +206,35 @@ def main():
     finally:
         s.close()
 
+    s = Session(["--url", URL, "--model", "mock/plain", "--no-mouse"])
+    try:
+        if not s.wait_for("ask anything"):
+            fail("help key chat screen never appeared", s)
+        s.send(b"?")
+        if not s.wait_for("commands", 5):
+            fail("? did not open the help panel", s)
+        s.send(b"x")
+        time.sleep(0.2)
+        s.send(b"hi?\r")
+        if not s.wait_for("◑ hi?", 5):
+            fail("? was not typed into a non-empty composer", s)
+        if not s.wait_for("pong from mock", 10):
+            fail("help key reply did not finish", s)
+        s.send(b"/quit\r")
+        if not s.wait_exit(6):
+            fail("help key TUI did not exit", s)
+        if s.status != 0:
+            fail(f"help key TUI exit status {s.status >> 8}", s)
+        print("ok - tui ? opens help only on an empty composer")
+    finally:
+        s.close()
+
     s = Session(["--url", URL, "--model", "mock/slow", "--no-mouse"])
     try:
         if not s.wait_for("ask anything"):
             fail("queue chat screen never appeared", s)
         s.send(b"first\r")
-        if not s.wait_for("generating", 8):
+        if not s.wait_for(" ch", 8):
             fail("queue: slow stream never started", s)
         s.send(b"second\r")
         if not s.wait_for("queue ↓", 5):
@@ -232,7 +255,7 @@ def main():
         if not s.wait_for("ask anything"):
             fail("cancel queue chat screen never appeared", s)
         s.send(b"go\r")
-        if not s.wait_for("generating", 8):
+        if not s.wait_for(" ch", 8):
             fail("cancel queue: slow stream never started", s)
         s.send(b"second\r")
         if not s.wait_for("queue ↓", 5):
@@ -259,7 +282,7 @@ def main():
         if not s.wait_for("ask anything"):
             fail("failing queue chat screen never appeared", s)
         s.send(b"first\r")
-        if not s.wait_for("generating", 8):
+        if not s.wait_for(" ch", 8):
             fail("failing queue: stream never started", s)
         s.send(b"second\r")
         if not s.wait_for("queue ↓", 5):
@@ -271,7 +294,7 @@ def main():
             s.read(0.05)
         tail = clean(s.buf)
         tail = tail[tail.rfind(b"mock queue failure"):]
-        if b"generating" in tail:
+        if b" ch" in tail:
             fail("failing queue: failed reply drained the queue", s)
         s.send(b"\x03")
         if not s.wait_exit(6):
@@ -284,6 +307,34 @@ def main():
 
     plain_session("mock/error200", "mock says no", "200 json error")
     plain_session("mock/json200", "pong from mock", "raw json fallback", "ctx 12")
+    plain_session("mock/tinyctx", "pong from mock", "context percentage",
+                  "ctx 49%")
+
+    s = Session(["--url", URL, "--model", "mock/split", "--no-mouse"])
+    try:
+        if not s.wait_for("ask anything"):
+            fail("model switch chat screen never appeared", s)
+        s.send(b"hi\r")
+        if not s.wait_for("ctx <1%", 12):
+            fail("model switch: the first reply never finished", s)
+        s.send(b"/model mock/tinyctx\r")
+        if not s.wait_for("model mock/tinyctx", 5):
+            fail("model switch: the model note never appeared", s)
+        time.sleep(0.3)
+        s.read(0.3)
+        tail = clean(s.buf)
+        note_at = tail.rfind(b"model mock/tinyctx")
+        ctx_at = tail.rfind(b"ctx ")
+        if note_at >= 0 and ctx_at > note_at:
+            fail("stale ctx survived a model switch", s)
+        s.send(b"/quit\r")
+        if not s.wait_exit(6):
+            fail("model switch TUI did not exit", s)
+        if s.status != 0:
+            fail(f"model switch TUI exit status {s.status >> 8}", s)
+        print("ok - tui model switch drops the stale ctx percentage")
+    finally:
+        s.close()
 
     s = Session(["--url", URL, "--model", "mock/huge", "--no-mouse"])
     try:

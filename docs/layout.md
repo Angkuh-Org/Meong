@@ -26,7 +26,8 @@ tests/    shell harness, C harnesses (tests/c/), pty/tmux TUI tests
 which seeds the `App`, resolves the endpoint, loads the model list, and picks
 the initial model. `tui_run()` is the event loop: read a key, tick the active
 stream, redraw dirty frames on a 30 ms throttle (50 ms ticks while streaming),
-and animate the spinner at 10 Hz. `handle_key()` routes keys to the composer,
+and animate the spinner at 5 Hz (one clockwise turn per 0.8 s over four
+quadrant frames). `handle_key()` routes keys to the composer,
 scrolling, the slash menu, the picker, the help overlay, the pet card, or the
 model capability card; `handle_mouse()` owns the header brand box, the model
 hit-box, the pet-card hit-box, and the chat click.
