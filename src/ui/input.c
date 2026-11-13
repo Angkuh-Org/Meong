@@ -46,6 +46,12 @@ static void input_set(App *a, const wchar_t *s, size_t n) {
     a->ilen = n;
     a->icur = n;
     a->dirty = 1;
+    a->cmd_hide = 0;
+    a->cmd_sel = 0;
+}
+
+void input_set_text(App *a, const wchar_t *s, size_t n) {
+    input_set(a, s, n);
 }
 
 void history_move(App *a, int dir) {
@@ -74,6 +80,9 @@ void history_move(App *a, int dir) {
         } else {
             a->ilen = 0;
             a->icur = 0;
+            a->cmd_hide = 0;
+            a->cmd_sel = 0;
+            a->dirty = 1;
         }
     } else {
         wchar_t *h = a->hist[a->hist_pos];
@@ -90,6 +99,8 @@ void input_insert(App *a, wchar_t wc) {
     a->input[a->icur++] = wc;
     a->ilen++;
     a->dirty = 1;
+    a->cmd_hide = 0;
+    a->cmd_sel = 0;
 }
 
 void input_backspace(App *a) {
@@ -101,6 +112,8 @@ void input_backspace(App *a) {
     a->icur--;
     a->ilen--;
     a->dirty = 1;
+    a->cmd_hide = 0;
+    a->cmd_sel = 0;
 }
 
 void input_del(App *a) {
@@ -111,6 +124,8 @@ void input_del(App *a) {
             (a->ilen - a->icur - 1) * sizeof *a->input);
     a->ilen--;
     a->dirty = 1;
+    a->cmd_hide = 0;
+    a->cmd_sel = 0;
 }
 
 void input_kill_word(App *a) {
@@ -127,6 +142,8 @@ void input_kill_word(App *a) {
     a->ilen -= end - start;
     a->icur = start;
     a->dirty = 1;
+    a->cmd_hide = 0;
+    a->cmd_sel = 0;
 }
 
 void input_reset(App *a) {
@@ -136,6 +153,8 @@ void input_reset(App *a) {
     free(a->draft);
     a->draft = NULL;
     a->dirty = 1;
+    a->cmd_hide = 0;
+    a->cmd_sel = 0;
 }
 
 void chat_scroll(App *a, int lines) {

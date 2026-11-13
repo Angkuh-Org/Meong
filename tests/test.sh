@@ -580,6 +580,359 @@ if command -v tmux >/dev/null 2>&1; then
     ok "reasoning-only reply stays unfolded"
     tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
     TMUX_SESS=""
+
+    TMUX_SESS="Meong-slash-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 110 -y 40 \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/plain --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" '/'
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'pick a model, or switch directly'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    for cmd in /model /models /system /clear /retry /help /quit; do
+        printf '%s\n' "$pane" | grep -Fq "$cmd" \
+            || fail "slash menu is missing $cmd"
+    done
+    menu_line=$(printf '%s\n' "$pane" |
+        grep -n 'pick a model, or switch directly' | head -1 | cut -d: -f1)
+    box_line=$(printf '%s\n' "$pane" | grep -n '^ ┌' | tail -1 | cut -d: -f1)
+    [ -n "$menu_line" ] && [ -n "$box_line" ] &&
+        [ "$menu_line" -lt "$box_line" ] \
+        || fail "slash menu is not above the composer"
+    ok "slash menu lists commands above the composer"
+
+    tmux send-keys -t "$TMUX_SESS" Down
+    tmux send-keys -t "$TMUX_SESS" Down
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '› /system'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq '› /system' \
+        || fail "down did not focus /system"
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '❯ /system'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq '❯ /system' \
+        || fail "enter did not complete /system into the composer"
+    if printf '%s\n' "$pane" | grep -Fq 'pick a model, or switch directly'; then
+        fail "slash menu stayed open after completion"
+    fi
+    tmux send-keys -l -t "$TMUX_SESS" 'off'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'system prompt cleared'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'system prompt cleared' \
+        || fail "completed /system did not accept its argument"
+    ok "slash menu focus and enter completion"
+
+    tmux send-keys -l -t "$TMUX_SESS" '/cl'
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '/clear       forget the conversation'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" |
+        grep -Fq '/clear       forget the conversation' \
+        || fail "typing /cl did not filter to /clear"
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '❯ /clear'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq '❯ /clear' \
+        || fail "enter did not complete /cl to /clear"
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'talk to anything behind PAIG'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" |
+        grep -Fq 'talk to anything behind PAIG' \
+        || fail "completed /clear did not run"
+    ok "slash filter narrows and enter completes"
+
+    tmux send-keys -l -t "$TMUX_SESS" '/'
+    sleep 0.3
+    tmux send-keys -t "$TMUX_SESS" Escape
+    sleep 0.3
+    if tmux capture-pane -p -t "$TMUX_SESS" |
+        grep -Fq 'pick a model, or switch directly'; then
+        fail "escape did not close the slash menu"
+    fi
+    tmux send-keys -t "$TMUX_SESS" C-u
+    tmux send-keys -l -t "$TMUX_SESS" '/he'
+    sleep 0.3
+    tmux send-keys -t "$TMUX_SESS" Tab
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '❯ /help'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq '❯ /help' \
+        || fail "tab did not complete /he to /help"
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'Meong · help'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'Meong · help' \
+        || fail "tab completion did not run /help"
+    tmux send-keys -t "$TMUX_SESS" q
+    tmux send-keys -l -t "$TMUX_SESS" '/help'
+    sleep 0.3
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'Meong · help'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'Meong · help' \
+        || fail "an exact command plus enter no longer runs"
+    ok "slash menu escape, tab, and exact-command enter"
+
+    tmux send-keys -t "$TMUX_SESS" q
+    tmux send-keys -l -t "$TMUX_SESS" '/quit'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if ! tmux has-session -t "$TMUX_SESS" 2>/dev/null; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux has-session -t "$TMUX_SESS" 2>/dev/null \
+        && fail "slash /quit did not exit Meong"
+    ok "slash menu /quit exits"
+    TMUX_SESS=""
+
+    TMUX_SESS="Meong-slash-cancel-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 110 -y 40 \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/slow --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'go'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'generating'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" '/'
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'pick a model, or switch directly'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -t "$TMUX_SESS" C-c
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'stopped'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'stopped' \
+        || fail "ctrl-c was swallowed by the slash menu while streaming"
+    ok "ctrl-c still cancels while the slash menu is open"
+    tmux send-keys -t "$TMUX_SESS" C-u
+    tmux send-keys -l -t "$TMUX_SESS" '/quit'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if ! tmux has-session -t "$TMUX_SESS" 2>/dev/null; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux has-session -t "$TMUX_SESS" 2>/dev/null \
+        && fail "cancel slash session did not exit"
+    TMUX_SESS=""
+
+    TMUX_SESS="Meong-slash-short-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 40 -y 12 \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/plain --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" '/'
+    sleep 0.3
+    if tmux capture-pane -p -t "$TMUX_SESS" |
+        grep -Fq 'pick a model, or switch directly'; then
+        fail "slash menu was drawn over the composer on a short terminal"
+    fi
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'unknown command'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq 'unknown command' \
+        || fail "enter on a hidden slash menu did not submit"
+    if printf '%s\n' "$pane" | grep -Fq '❯ /model'; then
+        fail "a hidden slash menu still completed the composer"
+    fi
+    ok "slash menu stays hidden when the terminal is too short"
+
+    tmux resize-window -t "$TMUX_SESS" -x 110 -y 40
+    tmux send-keys -t "$TMUX_SESS" C-l
+    tmux send-keys -l -t "$TMUX_SESS" '/clear'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" '/'
+    sleep 0.3
+    tmux resize-window -t "$TMUX_SESS" -x 34 -y 20
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'terminal too small'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -H -t "$TMUX_SESS" 1b 4f 4d
+    sleep 0.5
+    tmux resize-window -t "$TMUX_SESS" -x 110 -y 40
+    tmux send-keys -t "$TMUX_SESS" C-l
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'unknown command'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq 'unknown command' \
+        || fail "keypad enter below the draw minimum did not submit"
+    if printf '%s\n' "$pane" | grep -Fq '❯ /model'; then
+        fail "hidden slash menu completed the composer at 34 columns"
+    fi
+    ok "slash menu follows the draw minimum at 34 columns"
+
+    tmux send-keys -l -t "$TMUX_SESS" '/quit'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if ! tmux has-session -t "$TMUX_SESS" 2>/dev/null; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux has-session -t "$TMUX_SESS" 2>/dev/null \
+        && fail "short slash session did not exit"
+    TMUX_SESS=""
 else
     printf 'skip - tmux not found, screen check for the input gap skipped\n'
 fi

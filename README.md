@@ -21,7 +21,7 @@ back to `-lncursesw`).
 ./tests/test.sh         # offline mock + pty/tmux TUI tests
 ```
 
-The binary is ~86 KB stripped with lld; GNU bfd defaults to 64K
+The binary is ~91 KB stripped with lld; GNU bfd defaults to 64K
 max-page-size on aarch64 and links ~133 KB.
 
 Release binaries are built on Ubuntu 22.04 and need glibc 2.35+,
@@ -73,6 +73,7 @@ row uses the same local mock on both sides. Method and raw numbers:
 | Key | Action |
 | --- | --- |
 | `enter` | send; queue the prompt while a reply streams |
+| `/` | command menu: type to filter, `up`/`down` to focus, `enter`/`tab` to complete, `esc` to close |
 | `tab` | model picker (type to filter) |
 | `pgup` / `pgdn` | scroll the conversation |
 | `ctrl-g` / `ctrl-t` | jump to bottom / top |
@@ -85,6 +86,10 @@ row uses the same local mock on both sides. Method and raw numbers:
 | click / tap thinking | expand or fold reasoning |
 
 ## Commands
+
+Type `/` in the composer to list these in a filterable menu; `enter` or `tab`
+completes the focused command, and an already-complete command runs on the
+first `enter`.
 
 | Command | Action |
 | --- | --- |

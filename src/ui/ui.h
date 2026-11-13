@@ -7,6 +7,9 @@
 
 #include "app/app.h"
 
+#define UI_MIN_ROWS 10
+#define UI_MIN_COLS 36
+
 enum {
     P_USER = 1,
     P_AI,
@@ -117,6 +120,7 @@ void picker_filter_clear(App *a);
 void picker_filter_append(App *a, char c);
 void picker_draw(App *a, int rows, int cols);
 void help_draw(App *a, int rows, int cols);
+void slash_draw(App *a, int rows, int cols, const int *idx, int n);
 
 void history_free(App *a);
 void history_add(App *a, const wchar_t *s, size_t n);
@@ -125,6 +129,7 @@ void input_insert(App *a, wchar_t wc);
 void input_backspace(App *a);
 void input_del(App *a);
 void input_kill_word(App *a);
+void input_set_text(App *a, const wchar_t *s, size_t n);
 void input_reset(App *a);
 void chat_scroll(App *a, int lines);
 void scroll_bottom(App *a);

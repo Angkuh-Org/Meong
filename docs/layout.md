@@ -27,7 +27,7 @@ which seeds the `App`, resolves the endpoint, loads the model list, and picks
 the initial model. `tui_run()` is the event loop: read a key, tick the active
 stream, redraw dirty frames on a 30 ms throttle (50 ms ticks while streaming),
 and animate the spinner at 10 Hz. `handle_key()` routes keys to the composer,
-scrolling, the picker, or the help overlay.
+scrolling, the slash menu, the picker, or the help overlay.
 
 ## `src/app/`
 
@@ -57,7 +57,8 @@ to the reply and `reasoning_content`/`reasoning` to the dimmed reasoning line,
 and falls back to the full parser on error or odd frames. It owns
 `start_generation()`, `finish_generation()`, `cancel_generation()`, and
 `drain_queue()`. `commands.c` implements `/model`, `/models`, `/system`,
-`/clear`, `/retry`, `/help`, and `/quit`.
+`/clear`, `/retry`, `/help`, and `/quit`, and owns the command table behind the
+composer's slash menu.
 
 ## `src/cli/`
 
@@ -102,8 +103,9 @@ and the `ui_draw()` frame. `view.c` owns `RLine`, the wrapped row model behind
 the transcript: paragraph wrapping, code fences, reasoning lines, notes,
 `draw_slice()` for UTF-8 and wide cells, the click hit-test that expands or
 folds a reasoning block, and a per-message tail cursor so streaming re-wraps
-only the last row plus the new bytes. `panel.c` draws the model picker and help
-overlays. `input.c` is the composer: insert, delete, word kill, and history.
+only the last row plus the new bytes. `panel.c` draws the model picker, help
+overlay, and slash-command menu. `input.c` is the composer: insert, delete,
+word kill, and history.
 
 ## `src/util/`
 

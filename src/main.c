@@ -105,6 +105,28 @@ static void handle_mouse(App *a) {
         a->dirty = 1;
         return;
     }
+    if (slash_open(a)) {
+        if (up) {
+            slash_move(a, -1);
+            return;
+        }
+        if (down) {
+            slash_move(a, 1);
+            return;
+        }
+        if (a->cmd_y0 >= 0 && ev.y >= a->cmd_y0 &&
+            ev.y < a->cmd_y0 + a->cmd_h && ev.x >= a->cmd_x0 &&
+            ev.x < a->cmd_x0 + a->cmd_w) {
+            if (ev.bstate & BUTTON1_PRESSED) {
+                int sel = ev.y - a->cmd_y0 - 1;
+                if (sel >= 0 && sel < a->cmd_h - 2) {
+                    a->cmd_sel = sel;
+                    a->dirty = 1;
+                }
+            }
+            return;
+        }
+    }
     if (up) {
         chat_scroll(a, 3);
     } else if (down) {
@@ -133,6 +155,20 @@ static void handle_key(App *a, wint_t wch, int special) {
         if (a->picker_open) {
             picker_key(a, wch, 1);
             return;
+        }
+        if (slash_open(a)) {
+            if (wch == KEY_UP) {
+                slash_move(a, -1);
+                return;
+            }
+            if (wch == KEY_DOWN) {
+                slash_move(a, 1);
+                return;
+            }
+            if (wch == KEY_ENTER) {
+                slash_accept(a);
+                return;
+            }
         }
         if (wch == KEY_PPAGE) {
             int rows, cols;
@@ -244,9 +280,15 @@ static void handle_key(App *a, wint_t wch, int special) {
         return;
     }
     if (wch == '\n' || wch == '\r') {
-        submit_input(a);
+        if (slash_open(a)) {
+            slash_accept(a);
+        } else {
+            submit_input(a);
+        }
     } else if (wch == 9) {
-        if (!a->streaming) {
+        if (slash_open(a)) {
+            slash_complete(a);
+        } else if (!a->streaming) {
             picker_open(a);
         }
     } else if (wch == 127 || wch == 8) {
@@ -277,7 +319,9 @@ static void handle_key(App *a, wint_t wch, int special) {
     } else if (wch == 14) {
         history_move(a, 1);
     } else if (wch == 27) {
-        /* ignore a lone escape */
+        if (slash_open(a)) {
+            slash_close(a);
+        }
     } else if (wch >= 32) {
         input_insert(a, (wchar_t)wch);
     }
@@ -337,6 +381,7 @@ static int tui_main(const Options *o) {
     a.color = 1;
     a.mouse = 1;
     a.chat_y0 = -1;
+    a.cmd_y0 = -1;
     a.unicode = 1;
     a.hist_pos = -1;
     a.gen_idx = -1;
