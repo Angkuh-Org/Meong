@@ -85,6 +85,10 @@ static void handle_mouse(App *a) {
     if (getmouse(&ev) != OK) {
         return;
     }
+    if (a->error_open) {
+        error_click(a, ev.y, ev.x);
+        return;
+    }
     int up = 0;
     int down = 0;
 #ifdef BUTTON4_PRESSED
@@ -191,6 +195,10 @@ static void handle_key(App *a, wint_t wch, int special) {
             handle_mouse(a);
             return;
         }
+        if (a->error_open) {
+            error_key(a, wch, 1);
+            return;
+        }
         if (wch == KEY_F(1)) {
             pet_meong(a);
             return;
@@ -292,6 +300,10 @@ static void handle_key(App *a, wint_t wch, int special) {
             a->dirty = 1;
             return;
         }
+        return;
+    }
+    if (a->error_open) {
+        error_key(a, wch, 0);
         return;
     }
     if (wch == 3) {

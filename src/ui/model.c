@@ -177,7 +177,9 @@ void model_info_draw(App *a, int rows, int cols) {
     a->model_py1 = py + h - 1;
     a->model_px0 = px;
     a->model_px1 = px + w - 1;
-    panel_frame(a, px, py, w, h, " model capabilities ", 1);
+    /* TODO(ui): the card lost its title and shadow together. The title
+     * matches the "card names itself" rule; no test pins the shadow. */
+    panel_frame(a, px, py, w, h, NULL, 0);
 
     int x = px + 3;
     int y = py + 1;

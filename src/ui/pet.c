@@ -122,8 +122,7 @@ void pet_draw(App *a, int rows, int cols) {
         mood = "lagi mikir";
     } else if (a->nqueued > 0) {
         mood = "sibuk";
-    } else if (a->nmsg > 0 &&
-               a->msgs[a->nmsg - 1].role == ROLE_ERROR) {
+    } else if (a->last_failed) {
         mood = "ngambek";
     } else if (asked == 0) {
         mood = "nganggur";

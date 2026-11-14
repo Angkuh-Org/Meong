@@ -40,7 +40,7 @@ void set_model(App *a, const char *id) {
     a->dirty = 1;
 }
 
-static void refresh_models(App *a) {
+void refresh_models(App *a) {
     int idx = msg_add(a, ROLE_NOTE, "refreshing models");
     ui_draw(a);
     char err[512];
@@ -52,18 +52,51 @@ static void refresh_models(App *a) {
         char buf[96];
         snprintf(buf, sizeof buf, "refreshed %d models", n);
         msg_set(&a->msgs[idx], buf);
+        a->last_failed = 0;
         a->layout_dirty = 1;
         a->layout_from = 0;
         a->dirty = 1;
         picker_open(a);
     } else {
         Msg *m = &a->msgs[idx];
-        m->role = ROLE_ERROR;
-        msg_set(m, err);
+        /* TODO(fix): same dangling-pointer reset as finish_generation();
+         * idx is the last message today, so this is latent. */
+        free(m->text);
+        free(m->reason);
+        if (idx == a->nmsg - 1) {
+            a->nmsg = idx;
+        }
         a->layout_dirty = 1;
         a->layout_from = 0;
         a->dirty = 1;
+        error_open(a, err, ERR_RETRY_MODELS);
     }
+}
+
+int retry_last(App *a) {
+    if (a->streaming) {
+        note(a, "wait for the current reply, or ctrl-c");
+        return 0;
+    }
+    int i = a->nmsg - 1;
+    while (i >= 0 && a->msgs[i].role != ROLE_USER) {
+        i--;
+    }
+    if (i < 0) {
+        note(a, "nothing to retry");
+        return 0;
+    }
+    for (int j = i + 1; j < a->nmsg; j++) {
+        free(a->msgs[j].text);
+        free(a->msgs[j].reason);
+    }
+    a->nmsg = i + 1;
+    a->follow = 1;
+    a->new_below = 0;
+    /* The streaming draw throttle would otherwise reuse rows that point at
+     * the just-freed reply; 0 forces the first frame to re-lay out. */
+    a->last_layout = 0;
+    return start_generation(a) == 0 ? 1 : 0;
 }
 
 void run_command(App *a, const char *cmdline) {
@@ -113,26 +146,7 @@ void run_command(App *a, const char *cmdline) {
     } else if (strcmp(cmd, "clear") == 0) {
         msgs_clear(a);
     } else if (strcmp(cmd, "retry") == 0) {
-        if (a->streaming) {
-            note(a, "wait for the current reply, or ctrl-c");
-        } else {
-            int i = a->nmsg - 1;
-            while (i >= 0 && a->msgs[i].role != ROLE_USER) {
-                i--;
-            }
-            if (i < 0) {
-                note(a, "nothing to retry");
-            } else {
-                for (int j = i + 1; j < a->nmsg; j++) {
-                    free(a->msgs[j].text);
-                    free(a->msgs[j].reason);
-                }
-                a->nmsg = i + 1;
-                a->follow = 1;
-                a->new_below = 0;
-                start_generation(a);
-            }
-        }
+        retry_last(a);
     } else {
         note(a, "unknown command: %s", cmd);
     }
@@ -211,7 +225,7 @@ int slash_open_list(const App *a, int *idx, int cap) {
         return 0;
     }
     if (a->cmd_hide || a->picker_open || a->help_open || a->pet_open ||
-        a->model_open) {
+        a->model_open || a->error_open) {
         return 0;
     }
     int n = slash_matches(a, idx, cap);

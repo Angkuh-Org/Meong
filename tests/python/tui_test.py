@@ -134,7 +134,7 @@ def fail(msg, *sessions):
     raise SystemExit(1)
 
 
-def plain_session(model, needle, label, done_marker=None):
+def plain_session(model, needle, label, done_marker=None, close_error=False):
     s = Session(["--url", URL, "--model", model, "--no-mouse"])
     try:
         if not s.wait_for("ask anything"):
@@ -144,6 +144,9 @@ def plain_session(model, needle, label, done_marker=None):
             fail(f"{label}: expected text never rendered", s)
         if done_marker and not s.wait_for(done_marker, 8):
             fail(f"{label}: stream never finished", s)
+        if close_error:
+            s.send(b"\x1b")
+            time.sleep(0.2)
         s.send(b"/quit\r")
         if not s.wait_exit(6):
             fail(f"{label}: TUI did not exit", s)
@@ -294,8 +297,10 @@ def main():
             s.read(0.05)
         tail = clean(s.buf)
         tail = tail[tail.rfind(b"mock queue failure"):]
-        if b" ch" in tail:
+        if re.search(rb"\d+ ch", tail):
             fail("failing queue: failed reply drained the queue", s)
+        s.send(b"\x1b")
+        time.sleep(0.2)
         s.send(b"\x03")
         if not s.wait_exit(6):
             fail("failing queue TUI did not exit", s)
@@ -305,7 +310,49 @@ def main():
     finally:
         s.close()
 
-    plain_session("mock/error200", "mock says no", "200 json error")
+    s = Session(["--url", URL, "--model", "mock/flaky", "--no-mouse"])
+    try:
+        if not s.wait_for("ask anything"):
+            fail("error window chat screen never appeared", s)
+        s.send(b"try me\r")
+        if not s.wait_for("request failed", 10):
+            fail("failed request did not open the error window", s)
+        if not s.wait_for("mock flaky failure", 5):
+            fail("error window lost the request error", s)
+        if not s.wait_for("retry", 5) or not s.wait_for("close", 5):
+            fail("error window lost a choice", s)
+        s.send(b"r")
+        if not s.wait_for("recovered after retry", 10):
+            fail("retry did not replay the failed request", s)
+        s.send(b"/quit\r")
+        if not s.wait_exit(6):
+            fail("retry TUI did not exit", s)
+        if s.status != 0:
+            fail(f"retry TUI exit status {s.status >> 8}", s)
+        print("ok - tui error window retry replays the request")
+    finally:
+        s.close()
+
+    s = Session(["--url", URL, "--model", "mock/error200", "--no-mouse"])
+    try:
+        if not s.wait_for("ask anything"):
+            fail("error close chat screen never appeared", s)
+        s.send(b"hi\r")
+        if not s.wait_for("request failed", 10):
+            fail("error close: the request did not fail", s)
+        s.send(b"\x1b")
+        time.sleep(0.2)
+        s.send(b"/quit\r")
+        if not s.wait_exit(6):
+            fail("escape did not close the error window", s)
+        if s.status != 0:
+            fail(f"error close TUI exit status {s.status >> 8}", s)
+        print("ok - tui error window closes with escape")
+    finally:
+        s.close()
+
+    plain_session("mock/error200", "mock says no", "200 json error",
+                  close_error=True)
     plain_session("mock/json200", "pong from mock", "raw json fallback", "ctx 12")
     plain_session("mock/tinyctx", "pong from mock", "context percentage",
                   "ctx 49%")

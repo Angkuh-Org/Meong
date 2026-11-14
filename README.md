@@ -98,6 +98,12 @@ row uses the same local mock on both sides. Method and raw numbers:
 | mouse wheel | scroll |
 | click / tap thinking | expand or fold reasoning |
 
+When a request fails, Meong opens a `request failed` window with two choices.
+`retry` replays the request that failed; `close` dismisses the window. The
+failure lives only in the window, so no error row is added to the transcript.
+Use `up`/`down` (or `tab`) to choose, `enter` to activate, `r` to retry,
+`c`/`esc` to close, or click a row.
+
 ## Commands
 
 Type `/` in the composer to list these in a filterable menu; `enter` or `tab`

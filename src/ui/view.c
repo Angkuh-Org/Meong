@@ -4,7 +4,6 @@
 #include <string.h>
 
 enum {
-    RL_HEAD_E,
     RL_TEXT,
     RL_CODE,
     RL_FENCE,
@@ -186,18 +185,6 @@ static void layout_message(App *a, int mi, int incremental) {
         line_push(a, RL_GAP, mi, 0, 0, 0);
         return;
     }
-    if (m->role == ROLE_ERROR) {
-        line_push(a, RL_HEAD_E, mi, 0, 0, 0);
-        if (m->len == 0) {
-            line_push(a, RL_TEXT, mi, 0, 0, 0);
-        } else {
-            wrap_run(a, mi, m->text, m->len, 0, RL_TEXT, a->layout_width,
-                     0, 0, 0, 0);
-        }
-        line_push(a, RL_GAP, mi, 0, 0, 0);
-        return;
-    }
-
     int first = -1;
     int text_start;
     int in_code = 0;
@@ -561,9 +548,7 @@ void draw_chat(App *a, int rows, int cols) {
             continue;
         }
         Msg *m = &a->msgs[l->msg];
-        int gut_pair = m->role == ROLE_USER
-                           ? P_USER
-                           : (m->role == ROLE_ERROR ? P_ERROR : P_AI);
+        int gut_pair = m->role == ROLE_USER ? P_USER : P_AI;
         if (l->head) {
             const char *s;
             int hp = m->role == ROLE_USER ? P_USER : P_AI;
@@ -574,13 +559,6 @@ void draw_chat(App *a, int rows, int cols) {
             }
             wattrset(stdscr, pair_attr(a, hp) | A_BOLD);
             mvaddstr(y, 2, s);
-        }
-        if (l->type == RL_HEAD_E) {
-            wattrset(stdscr, pair_attr(a, P_ERROR) | A_BOLD);
-            mvaddstr(y, 2, sym_err(a));
-            mvaddstr(y, 4, "error");
-            y++;
-            continue;
         }
         const char *gut = sym_gutter(a);
         const char *text = m->text;
@@ -607,14 +585,10 @@ void draw_chat(App *a, int rows, int cols) {
         } else if (l->type == RL_FENCE) {
             text_pair = P_FENCE;
         }
-        if (l->type == RL_TEXT && m->role == ROLE_ERROR) {
-            gut_pair = P_ERROR;
-        }
         int show_gutter =
             !l->head && !(m->role == ROLE_ASSISTANT && l->type != RL_REASON);
         if (show_gutter) {
-            wattrset(stdscr, pair_attr(a, gut_pair) |
-                                  (m->role == ROLE_ERROR ? 0 : A_DIM));
+            wattrset(stdscr, pair_attr(a, gut_pair) | A_DIM);
             mvaddstr(y, 2, gut);
         }
         draw_slice(y, x, text, off, len, maxx,

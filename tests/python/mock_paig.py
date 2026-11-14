@@ -19,7 +19,11 @@ MODELS = [
     "mock/error200",
     "mock/reasononly",
     "mock/tinyctx",
+    "mock/flaky",
+    "mock/flaky-tmux",
 ]
+FLAKY = {}
+FLAKY_LOCK = threading.Lock()
 CAPABILITIES = {
     "mock/split": {
         "context_window": 131072,
@@ -241,6 +245,50 @@ class Handler(BaseHTTPRequestHandler):
             return
         model = req.get("model", "")
         stream = bool(req.get("stream"))
+
+        if model in ("mock/flaky", "mock/flaky-tmux"):
+            with FLAKY_LOCK:
+                attempt = FLAKY.get(model, 0) + 1
+                FLAKY[model] = attempt
+            if attempt == 1:
+                self._json(
+                    429,
+                    {
+                        "type": "error",
+                        "error": {
+                            "type": "MockFlaky",
+                            "message": "mock flaky failure",
+                        },
+                    },
+                )
+                return
+            if stream:
+                self._stream_simple(model, "recovered after retry")
+                return
+            self._json(
+                200,
+                {
+                    "id": "chatcmpl-mock",
+                    "object": "chat.completion",
+                    "created": int(time.time()),
+                    "model": model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": "recovered after retry",
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 12,
+                        "completion_tokens": 3,
+                    },
+                },
+            )
+            return
 
         if model == "mock/huge":
             msgs = req.get("messages", [])

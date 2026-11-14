@@ -587,7 +587,10 @@ static void draw_footer(App *a, int rows, int cols, int slash) {
     int y = rows - 1;
     wattrset(stdscr, pair_attr(a, P_DIM));
     const char *hint;
-    if (a->help_open) {
+    if (a->error_open) {
+        hint = a->unicode ? "↑↓ choose | enter | esc close"
+                          : "up/down choose | enter | esc close";
+    } else if (a->help_open) {
         hint = "press any key";
     } else if (a->pet_open) {
         hint = "click card = pet | outside/key = close";
@@ -682,6 +685,12 @@ void ui_draw(App *a) {
     a->model_py1 = -1;
     a->model_px0 = -1;
     a->model_px1 = -1;
+    a->error_y0 = -1;
+    a->error_y1 = -1;
+    a->error_x0 = -1;
+    a->error_x1 = -1;
+    a->error_retry_y = -1;
+    a->error_close_y = -1;
     a->pet_y0 = -1;
     a->pet_y1 = -1;
     a->pet_x0 = -1;
@@ -718,6 +727,9 @@ void ui_draw(App *a) {
         pet_draw(a, rows, cols);
     } else if (a->model_open) {
         model_info_draw(a, rows, cols);
+    }
+    if (a->error_open) {
+        error_draw(a, rows, cols);
     }
     if (a->cursor_on) {
         wmove(stdscr, a->cur_y, a->cur_x);
