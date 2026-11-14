@@ -107,9 +107,10 @@ physical lines.
 
 `ui.c` handles terminal and theme setup (locale, UTF-8 detection, colour pairs,
 mouse), the header, status, input, and footer chrome, the splash and scrollbar,
-and the `ui_draw()` frame; the header records the `Meong` brand box so a click
-or tap pets the cat. `view.c` owns `RLine`, the wrapped row model behind
-the transcript: paragraph wrapping, code fences, reasoning lines, notes,
+and the `ui_draw()` frame; the header draws the
+`nf-fa-cat` mark and records the `Meong` brand box so a click or tap pets the
+cat. `view.c` owns `RLine`, the wrapped row model behind the transcript:
+paragraph wrapping, code fences, reasoning lines, notes,
 `draw_slice()` for UTF-8 and wide cells, the click hit-test that expands or
 folds a reasoning block, and a per-message tail cursor so streaming re-wraps
 only the last row plus the new bytes. `pet.c` owns the pet card: the ASCII cat,

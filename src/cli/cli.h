@@ -11,6 +11,7 @@ typedef struct {
     int stream;
     int list_models;
     int ascii;
+    int no_nerd;
     int no_mouse;
     int no_color;
     int help;

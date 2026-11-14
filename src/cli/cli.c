@@ -54,6 +54,7 @@ void usage(FILE *out) {
             "  --stream           stream tokens with --oneshot\n"
             "  --list-models      print model ids and exit\n"
             "  --ascii            ASCII-only chrome\n"
+            "  --no-nerd          plain brand, no Nerd Font icon\n"
             "  --no-mouse         disable mouse and touch input\n"
             "  --no-color         disable color\n"
             "  -h, --help         this text\n"
@@ -110,6 +111,8 @@ int parse_args(int argc, char **argv, Options *o) {
             o->list_models = 1;
         } else if (strcmp(arg, "--ascii") == 0) {
             o->ascii = 1;
+        } else if (strcmp(arg, "--no-nerd") == 0) {
+            o->no_nerd = 1;
         } else if (strcmp(arg, "--no-mouse") == 0) {
             o->no_mouse = 1;
         } else if (strcmp(arg, "--no-color") == 0) {

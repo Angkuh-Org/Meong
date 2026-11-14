@@ -11,7 +11,7 @@
 
 #define APP_NAME "Meong"
 #ifndef APP_VERSION
-#define APP_VERSION "0.6.1"
+#define APP_VERSION "0.7.0"
 #endif
 #define DEFAULT_MODEL "cc/deepseek/deepseek-v4.1-flash"
 
@@ -160,6 +160,7 @@ typedef struct {
     int dirty;
     int color;
     int unicode;
+    int nerd;
     int ascii;
     int mouse;
     int cursor_on;

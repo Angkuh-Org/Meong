@@ -115,6 +115,9 @@ int ui_init(App *a) {
     if (getenv("MEONG_ASCII")) {
         a->unicode = 0;
     }
+    if (!a->unicode) {
+        a->nerd = 0;
+    }
     if (a->color) {
         if (start_color() != OK || !has_colors()) {
             a->color = 0;
@@ -223,12 +226,21 @@ static void draw_header(App *a, int rows, int cols) {
     } else {
         wattrset(stdscr, base | A_BOLD);
     }
-    mvaddstr(0, 1, "Meong");
+    const char *icon = sym_brand_icon(a);
+    int bx = 1;
+    if (icon[0]) {
+        mvaddstr(0, bx, icon);
+        bx++;
+        mvaddstr(0, bx, " ");
+        bx++;
+    }
+    mvaddstr(0, bx, APP_NAME);
     a->brand_y = 0;
     a->brand_x0 = 1;
-    a->brand_x1 = 8; /* the word plus two cells of touch padding */
+    a->brand_x1 = bx + (int)strlen(APP_NAME) + 2;
     wattrset(stdscr, base | A_DIM);
-    mvaddstr(0, 7, " | ");
+    int sep_x = a->brand_x1 - 1;
+    mvaddstr(0, sep_x, " | ");
 
     char prov[32];
     backend_label(a->model, prov, sizeof prov);
@@ -254,7 +266,7 @@ static void draw_header(App *a, int rows, int cols) {
     }
     int right_w = (int)strlen(right);
 
-    int x = 10;
+    int x = sep_x + 3;
     int midmax = cols - x - 2;
     if (right_w > 0) {
         int reserve = right_w + 1;
@@ -263,9 +275,8 @@ static void draw_header(App *a, int rows, int cols) {
         }
         midmax -= reserve;
     }
-    /* TODO(dead): unreachable while ui_draw gates cols >= UI_MIN_COLS (36):
-     * 36 - 12 - 36/2 = 6. Keep as a guard only if the header geometry
-     * changes; otherwise delete. */
+    /* With the icon at 36 cols the right reserve leaves 4 cells, so this
+     * drops the cwd and keeps a 6-cell model chip. */
     if (midmax < 6) {
         midmax = 6;
         right_w = 0;

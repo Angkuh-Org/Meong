@@ -486,9 +486,10 @@ if command -v tmux >/dev/null 2>&1; then
     done
     pane=$(tmux capture-pane -p -t "$TMUX_SESS")
     header=$(printf '%s\n' "$pane" | head -1)
+    cat_icon=$(printf '\356\273\255')
     case "$header" in
-        ' Meong  |  '*) ;;
-        *) fail "header does not start with the pipe-separated brand" ;;
+        " $cat_icon Meong  |  "*) ;;
+        *) fail "header does not start with the cat icon and pipe-separated brand" ;;
     esac
     case "$header" in
         *'mock/split'*) ;;
@@ -598,7 +599,7 @@ if command -v tmux >/dev/null 2>&1; then
     tmux send-keys -t "$TMUX_SESS" C-u
     ok "typing closes the pet card without eating the key"
 
-    click_rc 1 11
+    click_rc 1 13
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
@@ -860,6 +861,15 @@ if command -v tmux >/dev/null 2>&1; then
     tmux resize-window -t "$TMUX_SESS" -x 36 -y 10
     sleep 0.4
     pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    header=$(printf '%s\n' "$pane" | head -1)
+    case "$header" in
+        " $cat_icon Meong  |  "*) ;;
+        *) fail "36-column header lost the cat brand" ;;
+    esac
+    case "$header" in
+        *'moc…'*) ;;
+        *) fail "36-column header lost the model chip" ;;
+    esac
     printf '%s\n' "$pane" | grep -Fq '( ^.^ )' \
         || fail "pet card vanished at 36x10"
     printf '%s\n' "$pane" | grep -Eq 'dielus +1x' \
@@ -1326,7 +1336,7 @@ if command -v tmux >/dev/null 2>&1; then
     done
     head -1 "$LEGACY/models" | grep -Fq '#meong-models-v3' \
         || fail "legacy cache was not migrated to v3"
-    click_rc 1 11
+    click_rc 1 13
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
@@ -1362,7 +1372,7 @@ if command -v tmux >/dev/null 2>&1; then
     done
     head -1 "$V2CACHE/models" | grep -Fq '#meong-models-v3' \
         || fail "v2 cache was not migrated to v3"
-    click_rc 1 11
+    click_rc 1 13
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
