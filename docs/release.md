@@ -11,6 +11,8 @@ provenance attestation.
 - `meong-linux-aarch64`
 - matching `.sha256` files
 
+`install.sh` consumes these assets; usage is in [`install.md`](install.md).
+
 Tags containing `-` (for example `v0.5.0-rc1`) are published as prereleases.
 
 ## Runtime requirements
@@ -36,11 +38,11 @@ across distros.
 
 `--version` prints `APP_VERSION`. Release builds pass the tag through
 `MEONG_VERSION`, which `build.sh` compiles into the binary; local builds keep
-the `0.6.0` default from `src/app/app.h`.
+the `0.6.1` default from `src/app/app.h`.
 
 ```sh
-MEONG_VERSION=v0.6.0 ./tests/test.sh
-test "$(./build/meong --version)" = "Meong v0.6.0"
+MEONG_VERSION=v0.6.1 ./tests/test.sh
+test "$(./build/meong --version)" = "Meong v0.6.1"
 ```
 
 The workflow refuses a tag whose binary reports a different version, and fails
@@ -49,7 +51,7 @@ if the binary requires glibc newer than 2.35.
 ## Rehearsal
 
 ```sh
-export MEONG_VERSION=v0.6.0
+export MEONG_VERSION=v0.6.1
 ./build.sh
 ./build/meong --version
 ./tests/test.sh

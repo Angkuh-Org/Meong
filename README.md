@@ -10,6 +10,15 @@ chunked SSE itself, and streams replies into a scrolling chat.
   > ^ <
 ```
 
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Angkuh-Org/Meong/main/install.sh | sh
+```
+
+The installer verifies the release SHA-256, probes the binary, and installs to
+`~/.local/bin` (`/usr/local/bin` as root). Options: [`docs/install.md`](docs/install.md).
+
 ## Build
 
 Requires `cc`, `ncursesw` headers, and `pkg-config` (optional; the build falls
@@ -18,10 +27,11 @@ back to `-lncursesw`).
 ```sh
 ./build.sh              # -> build/meong
 ./build.sh install      # -> $PREFIX/bin/meong (PREFIX=/usr/local by default)
+./build.sh help         # commands, environment, examples
 ./tests/test.sh         # offline mock + pty/tmux TUI tests
 ```
 
-The binary is ~93 KB stripped with lld; GNU bfd defaults to 64K
+A local stripped build is ~100 KB with lld; GNU bfd defaults to 64K
 max-page-size on aarch64 and links ~133 KB.
 
 Release binaries are built on Ubuntu 22.04 and need glibc 2.35+,
