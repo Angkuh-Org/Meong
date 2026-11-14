@@ -414,6 +414,25 @@ def main():
         s.close()
 
     s = Session(
+        ["--url", URL, "--model", "mock/split", "--no-nerd", "--no-mouse"]
+    )
+    try:
+        if not s.wait_for("ask anything"):
+            fail("--no-nerd chat screen never appeared", s)
+        if b"\xee\xbb\xad" in s.buf:
+            fail("--no-nerd still drew the Nerd Font cat", s)
+        if b" Meong  |  " not in clean(s.buf):
+            fail("--no-nerd lost the plain brand header", s)
+        s.send(b"/quit\r")
+        if not s.wait_exit(6):
+            fail("--no-nerd TUI did not exit", s)
+        if s.status != 0:
+            fail(f"--no-nerd TUI exit status {s.status >> 8}", s)
+        print("ok - tui --no-nerd keeps a plain brand")
+    finally:
+        s.close()
+
+    s = Session(
         [
             "--url",
             URL,

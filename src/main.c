@@ -478,6 +478,10 @@ static int tui_main(const Options *o) {
         a.ascii = 1;
         a.unicode = 0;
     }
+    a.nerd = !a.ascii;
+    if (o->no_nerd || getenv("MEONG_NO_NERD")) {
+        a.nerd = 0;
+    }
     if (o->no_mouse || getenv("MEONG_NO_MOUSE")) {
         a.mouse = 0;
     }

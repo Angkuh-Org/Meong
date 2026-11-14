@@ -45,6 +45,11 @@ static inline attr_t pair_attr(const App *a, int pair) {
     return a->color ? COLOR_PAIR(pair) : 0;
 }
 
+/* U+EEED nf-fa-cat; Nerd Font mono glyphs are one cell wide */
+static inline const char *sym_brand_icon(const App *a) {
+    return a->nerd ? "\xEE\xBB\xAD" : "";
+}
+
 static inline const char *sym_user(const App *a) {
     return a->unicode ? "◑" : ">";
 }
