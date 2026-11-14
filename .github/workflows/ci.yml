@@ -33,7 +33,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libncurses-dev pkg-config tmux lld
       - name: Check shell entrypoints
-        run: sh -n build.sh tests/test.sh
+        run: sh -n build.sh tests/test.sh install.sh
       - name: Build and test
         run: ./tests/test.sh
       - name: Smoke test
