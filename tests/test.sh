@@ -603,14 +603,14 @@ if command -v tmux >/dev/null 2>&1; then
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -Fq 'model capabilities'; then
+            grep -Eq 'provider +mock'; then
             break
         fi
         i=$((i + 1))
         sleep 0.05
     done
     pane=$(tmux capture-pane -p -t "$TMUX_SESS")
-    printf '%s\n' "$pane" | grep -Fq 'model capabilities' \
+    printf '%s\n' "$pane" | grep -Eq 'provider +mock' \
         || fail "clicking the header model did not open its capability card"
     printf '%s\n' "$pane" | grep -Fq 'mock/split' \
         || fail "capability card does not name the current model"
@@ -639,14 +639,14 @@ if command -v tmux >/dev/null 2>&1; then
     i=0
     while [ "$i" -lt 100 ]; do
         if ! tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -Fq 'model capabilities'; then
+            grep -Eq 'provider +mock'; then
             break
         fi
         i=$((i + 1))
         sleep 0.05
     done
     if tmux capture-pane -p -t "$TMUX_SESS" |
-        grep -Fq 'model capabilities'; then
+        grep -Eq 'provider +mock'; then
         fail "clicking outside the capability card did not close it"
     fi
     ok "clicking outside the capability card closes it"
@@ -655,25 +655,25 @@ if command -v tmux >/dev/null 2>&1; then
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -Fq 'model capabilities'; then
+            grep -Eq 'provider +mock'; then
             break
         fi
         i=$((i + 1))
         sleep 0.05
     done
-    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'model capabilities' \
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Eq 'provider +mock' \
         || fail "f2 did not open the capability card"
     tmux send-keys -t "$TMUX_SESS" Escape
     i=0
     while [ "$i" -lt 100 ]; do
         if ! tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -Fq 'model capabilities'; then
+            grep -Eq 'provider +mock'; then
             break
         fi
         i=$((i + 1))
         sleep 0.05
     done
-    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'model capabilities' \
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Eq 'provider +mock' \
         && fail "escape did not close the capability card"
     ok "f2 opens the capability card; escape closes it"
 
@@ -681,7 +681,7 @@ if command -v tmux >/dev/null 2>&1; then
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -Fq 'model capabilities'; then
+            grep -Eq 'provider +mock'; then
             break
         fi
         i=$((i + 1))
@@ -691,7 +691,7 @@ if command -v tmux >/dev/null 2>&1; then
     i=0
     while [ "$i" -lt 100 ]; do
         if ! tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -Fq 'model capabilities'; then
+            grep -Eq 'provider +mock'; then
             break
         fi
         i=$((i + 1))
@@ -1340,7 +1340,7 @@ if command -v tmux >/dev/null 2>&1; then
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -Fq 'model capabilities'; then
+            grep -Eq 'provider +mock'; then
             break
         fi
         i=$((i + 1))
@@ -1376,7 +1376,7 @@ if command -v tmux >/dev/null 2>&1; then
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -Fq 'model capabilities'; then
+            grep -Eq 'provider +mock'; then
             break
         fi
         i=$((i + 1))
@@ -1387,6 +1387,137 @@ if command -v tmux >/dev/null 2>&1; then
         || fail "v2 cache migration did not load enriched capabilities"
     ok "v2 model cache migrates to v3 with estimates"
     tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    TMUX_SESS="Meong-errorwin-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 110 -y 40 \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/flaky-tmux"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'hello'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 200 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'request failed'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq 'request failed' \
+        || fail "a failed request did not open the error window"
+    printf '%s\n' "$pane" | grep -Fq 'mock flaky failure' \
+        || fail "error window lost the gateway message"
+    printf '%s\n' "$pane" | grep -Fq 'retry' \
+        || fail "error window lost the retry choice"
+    printf '%s\n' "$pane" | grep -Fq 'close' \
+        || fail "error window lost the close choice"
+    ok "a failed request opens a window with retry and close"
+
+    tmux capture-pane -e -p -t "$TMUX_SESS" >"$TMP/errorwin.ansi"
+    python3 tests/python/panel_attr.py "$TMP/errorwin.ansi" 'error window' \
+        || fail "error window background"
+    ok "error window has a solid background"
+
+    row=$(tmux capture-pane -p -t "$TMUX_SESS" |
+        grep -n 'retry' | head -1 | cut -d: -f1)
+    [ -n "$row" ] || fail "error window retry row not found"
+    click_rc "$row" 30
+    i=0
+    while [ "$i" -lt 200 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'recovered after retry'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" |
+        grep -Fq 'recovered after retry' \
+        || fail "clicking retry did not replay the failed request"
+    ok "clicking retry replays the failed request"
+
+    tmux send-keys -l -t "$TMUX_SESS" '/quit'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if ! tmux has-session -t "$TMUX_SESS" 2>/dev/null; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux has-session -t "$TMUX_SESS" 2>/dev/null \
+        && fail "error window session did not exit"
+    TMUX_SESS=""
+
+    TMUX_SESS="Meong-errornoinline-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 110 -y 40 \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/error200 --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'hello'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 200 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'request failed'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -t "$TMUX_SESS" Escape
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if ! tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'request failed'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq '◑ hello' \
+        || fail "closing the error window dropped the user turn"
+    if printf '%s\n' "$pane" | grep -Fq 'mock says no'; then
+        fail "the closed error window left an inline error row"
+    fi
+    ok "closing the error window leaves no inline error row"
+    tmux send-keys -l -t "$TMUX_SESS" '/quit'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if ! tmux has-session -t "$TMUX_SESS" 2>/dev/null; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux has-session -t "$TMUX_SESS" 2>/dev/null \
+        && fail "inline-error session did not exit"
     TMUX_SESS=""
 else
     printf 'skip - tmux not found, screen check for the input gap skipped\n'

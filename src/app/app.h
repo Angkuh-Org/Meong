@@ -11,7 +11,7 @@
 
 #define APP_NAME "Meong"
 #ifndef APP_VERSION
-#define APP_VERSION "0.7.0"
+#define APP_VERSION "0.8.0"
 #endif
 #define DEFAULT_MODEL "cc/deepseek/deepseek-v4.1-flash"
 
@@ -24,7 +24,12 @@ enum {
     ROLE_USER,
     ROLE_ASSISTANT,
     ROLE_NOTE,
-    ROLE_ERROR,
+};
+
+/* The retry button replays whichever request produced the error. */
+enum {
+    ERR_RETRY_CHAT,
+    ERR_RETRY_MODELS,
 };
 
 typedef struct {
@@ -136,6 +141,17 @@ typedef struct {
     int model_py1;
     int model_px0;
     int model_px1;
+    int error_open;
+    int error_sel;
+    int error_action;
+    char error_text[2048];
+    int error_y0;
+    int error_y1;
+    int error_x0;
+    int error_x1;
+    int error_retry_y;
+    int error_close_y;
+    int last_failed;
     int pet_y0;
     int pet_y1;
     int pet_x0;

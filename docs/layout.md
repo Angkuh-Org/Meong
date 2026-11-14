@@ -27,17 +27,18 @@ which seeds the `App`, resolves the endpoint, loads the model list, and picks
 the initial model. `tui_run()` is the event loop: read a key, tick the active
 stream, redraw dirty frames on a 30 ms throttle (50 ms ticks while streaming),
 and animate the spinner at 5 Hz (one clockwise turn per 0.8 s over four
-quadrant frames). `handle_key()` routes keys to the composer,
-scrolling, the slash menu, the picker, the help overlay, the pet card, or the
-model capability card; `handle_mouse()` owns the header brand box, the model
-hit-box, the pet-card hit-box, and the chat click.
+quadrant frames). `handle_key()` routes keys to the request error window first,
+then the composer, scrolling, the slash menu, the picker, the help overlay, the
+pet card, or the model capability card; `handle_mouse()` owns the header brand
+box, the model hit-box, the pet-card hit-box, the error-window rows, and the
+chat click.
 
 ## `src/app/`
 
 `App` in `app.h` is the single mutable state object: messages, model list and
-per-model capabilities, picker, help, pet-card and capability-card state, the
-active stream, the prompt queue, the scroll/layout cache, composer text,
-history, and theme flags. `app.c` owns
+per-model capabilities, picker, help, pet-card, capability-card and
+error-window state, the active stream, the prompt queue, the scroll/layout
+cache, composer text, history, and theme flags. `app.c` owns
 message and queue storage and the config/cache directory rules —
 `MEONG_CONFIG_DIR`,
 `XDG_CONFIG_HOME`, then `~/.config/meong` (and the cache equivalents).
@@ -64,9 +65,11 @@ Its SSE callback reuses one `JDoc`/`Buf` pair on `App`, appends `delta.content`
 to the reply and `reasoning_content`/`reasoning` to the dimmed reasoning line,
 and falls back to the full parser on error or odd frames. It owns
 `start_generation()`, `finish_generation()`, `cancel_generation()`, and
-`drain_queue()`. `commands.c` implements `/model`, `/models`, `/system`,
-`/clear`, `/retry`, `/help`, and `/quit`, and owns the command table behind the
-composer's slash menu.
+`drain_queue()`; both generation paths open the error window when a request
+fails, and failures stay out of the transcript (a partial reply is kept).
+`commands.c` implements `/model`, `/models`, `/system`, `/clear`,
+`/retry`, `/help`, and `/quit`, owns the command table behind the composer's
+slash menu, and shares `retry_last()` with the error window's retry row.
 
 ## `src/cli/`
 
@@ -118,8 +121,9 @@ reaction pools, mood and stats selection, and its responsive layout. `panel.c`
 draws the model picker, help overlay, and slash-command menu, and owns the
 shared `panel_frame()` primitive. `model.c` owns the model capability card:
 reported-only rows, the compact `not reported:` line, the models.dev estimate
-footer, and its responsive layout. `input.c` is the composer: insert, delete,
-word kill, and history.
+footer, and its responsive layout. `errorview.c` owns the request error window:
+the wrapped message, retry/close rows, keyboard selection, and button
+hit-testing. `input.c` is the composer: insert, delete, word kill, and history.
 
 ## `src/util/`
 

@@ -130,6 +130,11 @@ void help_draw(App *a, int rows, int cols);
 void pet_draw(App *a, int rows, int cols);
 void model_info_open(App *a);
 void model_info_draw(App *a, int rows, int cols);
+void error_open(App *a, const char *text, int action);
+void error_close(App *a);
+void error_draw(App *a, int rows, int cols);
+void error_key(App *a, wint_t wch, int special);
+int error_click(App *a, int y, int x);
 void slash_draw(App *a, int rows, int cols, const int *idx, int n);
 
 void history_free(App *a);

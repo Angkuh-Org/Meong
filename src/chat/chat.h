@@ -23,6 +23,8 @@ void slash_accept(App *a);
 void slash_close(App *a);
 
 void set_model(App *a, const char *id);
+void refresh_models(App *a);
+int retry_last(App *a);
 void run_command(App *a, const char *cmdline);
 
 int start_generation(App *a);

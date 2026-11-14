@@ -212,22 +212,22 @@ int start_generation(App *a) {
     if (stream_start(&s, &a->ep, "POST", "/v1/chat/completions", body.p,
                      body.len, 1, on_stream_event, a, 240000, err,
                      sizeof err) != 0) {
-        Msg *m = &a->msgs[idx];
-        m->role = ROLE_ERROR;
         Buf msg;
         buf_init(&msg);
         buf_printf(&msg, "cannot reach %s\n%s", a->url, err);
         if (strstr(err, "refused")) {
             buf_adds(&msg, "\n\nis the gateway running?  try: paig --start");
         }
-        msg_set(m, msg.p ? msg.p : err);
-        buf_free(&msg);
+        a->nmsg = idx;
+        a->gen_idx = -1;
         a->streaming = 0;
         a->stream = NULL;
         a->layout_dirty = 1;
         a->layout_from = 0;
         a->dirty = 1;
         buf_free(&body);
+        error_open(a, msg.p ? msg.p : err, ERR_RETRY_CHAT);
+        buf_free(&msg);
         return -1;
     }
     buf_free(&body);
@@ -309,8 +309,7 @@ int finish_generation(App *a, int ok) {
         trim_trailing_ws(m);
         if (m->len == 0 && m->rlen == 0) {
             ok = 0;
-            m->role = ROLE_ERROR;
-            msg_set(m, "the model returned an empty reply");
+            snprintf(emsg, sizeof emsg, "the model returned an empty reply");
         } else {
             if (m->rlen > 0 && m->len > 0 && !m->reason_user_set) {
                 m->reason_collapsed = 1;
@@ -324,17 +323,18 @@ int finish_generation(App *a, int ok) {
             a->last_ctok = a->gen_ctok;
             a->last_elapsed = m->elapsed;
         }
-    } else {
-        if (m->len == 0 && m->rlen == 0) {
-            m->role = ROLE_ERROR;
-            free(m->reason);
-            m->reason = NULL;
-            m->rlen = 0;
-            m->rcap = 0;
-            msg_set(m, emsg);
-        } else {
-            msg_add(a, ROLE_ERROR, emsg);
+    }
+    if (!ok && m->len == 0 && m->rlen == 0) {
+        /* TODO(fix): the guard cannot be false today (msg_add is blocked
+         * while streaming). If it ever can, the frees below leave a live
+         * Msg with dangling text/reason; reset both and their lengths
+         * before dropping the slot. */
+        free(m->text);
+        free(m->reason);
+        if (a->gen_idx == a->nmsg - 1) {
+            a->nmsg = a->gen_idx;
         }
+        a->gen_idx = -1;
     }
     stream_free(s);
     a->stream = NULL;
@@ -344,6 +344,11 @@ int finish_generation(App *a, int ok) {
     a->dirty = 1;
     if (!a->follow) {
         a->new_below = 1;
+    }
+    if (!ok) {
+        error_open(a, emsg[0] ? emsg : "request failed", ERR_RETRY_CHAT);
+    } else {
+        a->last_failed = 0;
     }
     return ok;
 }

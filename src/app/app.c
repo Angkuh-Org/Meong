@@ -58,6 +58,7 @@ void msgs_clear(App *a) {
     }
     a->nmsg = 0;
     a->have_gen_stats = 0;
+    a->last_failed = 0;
     a->last_trimmed = 0;
     a->last_ptok = 0;
     a->last_ctok = 0;
