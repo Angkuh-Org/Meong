@@ -469,6 +469,14 @@ static int tui_main(const Options *o) {
     }
     App a;
     memset(&a, 0, sizeof a);
+    a.cwd = getcwd(NULL, 0);
+    if (!a.cwd) {
+        const char *pwd = getenv("PWD");
+        if (pwd && *pwd) {
+            a.cwd = xstrdup(pwd);
+        }
+    }
+    a.model_ctx = MODEL_CTX_UNSET;
     a.color = 1;
     a.mouse = 1;
     a.chat_y0 = -1;
@@ -483,6 +491,8 @@ static int tui_main(const Options *o) {
     if (endpoint_parse(url, &a.ep, err, sizeof err) != 0) {
         fprintf(stderr, "Meong: %s\n", err);
         free(url);
+        /* TODO(mem): a.cwd was allocated above; free it here too. Only a
+         * harness sees this leak because the process exits today. */
         return 1;
     }
     a.url = url;
@@ -543,6 +553,7 @@ static int tui_main(const Options *o) {
     models_clear(&a);
     free(a.model);
     free(a.system_prompt);
+    free(a.cwd);
     free(a.url);
     free(a.pick_matches);
     free(a.lines);

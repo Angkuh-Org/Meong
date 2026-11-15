@@ -31,6 +31,7 @@ void set_model(App *a, const char *id) {
     state_save_model(a->model);
     if (changed) {
         a->have_gen_stats = 0;
+        a->model_ctx = MODEL_CTX_UNSET;
         a->last_trimmed = 0;
         a->last_ptok = 0;
         a->last_ctok = 0;
@@ -59,10 +60,7 @@ void refresh_models(App *a) {
         picker_open(a);
     } else {
         Msg *m = &a->msgs[idx];
-        /* TODO(fix): same dangling-pointer reset as finish_generation();
-         * idx is the last message today, so this is latent. */
-        free(m->text);
-        free(m->reason);
+        msg_release(m);
         if (idx == a->nmsg - 1) {
             a->nmsg = idx;
         }
@@ -217,10 +215,7 @@ int slash_matches(const App *a, int *idx, int cap) {
     return n;
 }
 
-/* TODO(perf): slash_open("/m") is ~132 ns/op, dominated by getmaxy/getmaxx
- * and chat_height. ui_draw already has rows/cols; passing them in skips both
- * calls. Caching open state across events is the riskier option. */
-int slash_open_list(const App *a, int *idx, int cap) {
+int slash_open_list_at(const App *a, int rows, int cols, int *idx, int cap) {
     if (a->ilen == 0 || a->input[0] != L'/') {
         return 0;
     }
@@ -232,13 +227,17 @@ int slash_open_list(const App *a, int *idx, int cap) {
     if (n == 0) {
         return 0;
     }
-    int rows, cols;
-    getmaxyx(stdscr, rows, cols);
     if (rows < UI_MIN_ROWS || cols < UI_MIN_COLS ||
         chat_height(a, rows) < n + 2) {
         return 0;
     }
     return n;
+}
+
+int slash_open_list(const App *a, int *idx, int cap) {
+    int rows, cols;
+    getmaxyx(stdscr, rows, cols);
+    return slash_open_list_at(a, rows, cols, idx, cap);
 }
 
 int slash_open(const App *a) {

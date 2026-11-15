@@ -188,6 +188,7 @@ void models_clear(App *a) {
     a->models = NULL;
     a->model_caps = NULL;
     a->nmodels = 0;
+    a->model_ctx = MODEL_CTX_UNSET;
 }
 
 static long long cache_ll(const char *s) {

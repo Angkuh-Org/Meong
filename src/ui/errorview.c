@@ -24,8 +24,8 @@ static int err_wrap(int y, int ymax, int x, int width, const char *s,
         return y;
     }
     while (s && *s && y < ymax) {
-        /* TODO(perf): strlen(s) rescans the remaining text every row, O(n^2)
-         * on newline-heavy errors. Hoisting n was measured at +30 insn and
+        /* strlen(s) rescans the remaining text every row, O(n^2) on
+         * newline-heavy errors. Hoisting n was measured at +30 insn and
          * +136 B text; keep this until the ncurses-bound panel is hot. */
         size_t n = strlen(s);
         size_t i = 0;

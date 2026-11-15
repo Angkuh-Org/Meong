@@ -11,7 +11,7 @@
 
 #define APP_NAME "Meong"
 #ifndef APP_VERSION
-#define APP_VERSION "0.8.0"
+#define APP_VERSION "0.8.1"
 #endif
 #define DEFAULT_MODEL "cc/deepseek/deepseek-v4.1-flash"
 
@@ -19,6 +19,9 @@
 #define MAX_HISTORY 100
 #define MAX_TEXT (4u << 20)
 #define CHAT_BUDGET (200u << 10)
+
+/* Cached for the footer; the sentinel means "recompute on next draw". */
+#define MODEL_CTX_UNSET (-2)
 
 enum {
     ROLE_USER,
@@ -83,6 +86,7 @@ typedef struct {
     char *url;
     char *model;
     char *system_prompt;
+    char *cwd;
     Msg *msgs;
     int nmsg;
     int msgcap;
@@ -183,6 +187,7 @@ typedef struct {
     int cur_y;
     int cur_x;
     int have_gen_stats;
+    long long model_ctx;
     int last_trimmed;
     long last_ptok;
     long last_ctok;
@@ -200,6 +205,7 @@ char *state_load_model(void);
 void state_save_model(const char *model);
 
 void msgs_clear(App *a);
+void msg_release(Msg *m);
 int msg_add(App *a, int role, const char *text);
 void msg_set(Msg *m, const char *text);
 int msg_append(Msg *m, const char *s, size_t n);

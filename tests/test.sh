@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 TMP=$(mktemp -d)
 MOCK_PID=""
 TMUX_SESS=""
+DEEP_SESS=""
 CHECKS=0
 BIN=${MEONG_BIN:-./build/meong}
 export MEONG_BIN="$BIN"
@@ -14,6 +15,9 @@ NC_LIBS=$(pkg-config --libs ncursesw 2>/dev/null || echo "-lncursesw")
 cleanup() {
     if [ -n "$TMUX_SESS" ]; then
         tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    fi
+    if [ -n "$DEEP_SESS" ]; then
+        tmux kill-session -t "$DEEP_SESS" 2>/dev/null || true
     fi
     if [ -n "$MOCK_PID" ]; then
         kill "$MOCK_PID" 2>/dev/null || true
@@ -69,6 +73,14 @@ $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     || fail "fast delta scanner diverged from jsmn"
 ok "json: fast delta scanner matches jsmn"
 
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
+    -o "$TMP/msg_release_test" \
+    tests/c/msg_release_test.c src/app/app.c src/util/util.c \
+    || fail "msg_release test did not compile"
+"$TMP/msg_release_test" >/dev/null \
+    || fail "msg_release left stale state"
+ok "app: msg_release clears the message and is idempotent"
+
 LAYOUT_SRCS=$(find src -name '*.c' ! -path 'src/rules/*' \
     ! -path 'src/main.c' ! -path 'src/ui/view.c' | sort)
 # shellcheck disable=SC2086
@@ -96,6 +108,15 @@ $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc -Isrc/ui \
 "$TMP/layout_bench" stream 4096 64 >/dev/null \
     || fail "layout benchmark failed"
 ok "layout: benchmark harness builds and runs"
+
+# shellcheck disable=SC2086
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc -Isrc/ui \
+    -o "$TMP/header_mid_test" \
+    tests/c/header_mid_test.c $LAYOUT_SRCS $NC_LIBS \
+    || fail "header chip test did not compile"
+"$TMP/header_mid_test" >/dev/null \
+    || fail "header chip clamp cut by bytes or past the buffer"
+ok "header: over-long model id keeps a UTF-8 prefix and width"
 
 PORT=$(python3 - <<'PY'
 import socket
@@ -505,6 +526,49 @@ if command -v tmux >/dev/null 2>&1; then
         *) fail "header lost the working directory" ;;
     esac
 
+    # A cwd past the old 511-byte getcwd() buffer must keep its tail, not
+    # drop to "ready". Separate session: the main one has to survive.
+    DEEP="$TMP/deep"
+    i=0
+    while [ "${#DEEP}" -lt 600 ]; do
+        DEEP="$DEEP/deep-dir-abcdefghijklmnopqrstuvwxyz-0123456789-ABCDEFG"
+        i=$((i + 1))
+    done
+    DEEP="$DEEP/tail-marker"
+    mkdir -p "$DEEP"
+    DEEP_SESS="Meong-deep-$$"
+    tmux kill-session -t "$DEEP_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$DEEP_SESS" -x 110 -y 40 -c "$DEEP" \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config-deep' XDG_CACHE_HOME='$TMP/cache-deep' \
+         '$BIN_ABS' --url '$URL' --model mock/split --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$DEEP_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    header=$(tmux capture-pane -p -t "$DEEP_SESS" 2>/dev/null | head -1)
+    case "$header" in
+        *'tail-marker'*) ;;
+        *)
+            tmux kill-session -t "$DEEP_SESS" 2>/dev/null || true
+            fail "header lost the tail of a >600-byte cwd"
+            ;;
+    esac
+    case "$header" in
+        *'ready'*)
+            tmux kill-session -t "$DEEP_SESS" 2>/dev/null || true
+            fail "long cwd fell back to ready"
+            ;;
+    esac
+    tmux kill-session -t "$DEEP_SESS" 2>/dev/null || true
+    DEEP_SESS=""
+    ok "header keeps the tail of a >600-byte cwd"
+
     click_rc() {
         tmux send-keys -l -t "$TMUX_SESS" \
             "$(printf '\033[<0;%d;%dM' "$2" "$1")"
@@ -676,6 +740,80 @@ if command -v tmux >/dev/null 2>&1; then
     tmux capture-pane -p -t "$TMUX_SESS" | grep -Eq 'provider +mock' \
         && fail "escape did not close the capability card"
     ok "f2 opens the capability card; escape closes it"
+
+    tmux send-keys -t "$TMUX_SESS" F2
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Eq 'provider +mock'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -e -p -t "$TMUX_SESS" >"$TMP/card.ansi"
+    python3 - "$TMP/card.ansi" <<'PY' || fail "capability card shadow"
+import sys
+sys.path.insert(0, "tests/python")
+from panel_attr import screen
+
+text = open(sys.argv[1], encoding="utf-8").read()
+if "48;5;" not in text:
+    sys.exit("card shadow: capture has no 256-colour SGR (TERM not 256?)")
+rows = screen(text)
+lines = ["".join(ch for ch, _ in row) for row in rows]
+provider = None
+for y, line in enumerate(lines):
+    if "provider" in line and "mock" in line:
+        provider = y
+        break
+if provider is None:
+    sys.exit("card shadow: capability card body not found")
+top = None
+for y in range(provider - 1, -1, -1):
+    if "┌" in lines[y] and "┐" in lines[y]:
+        top = y
+        break
+if top is None:
+    sys.exit("card shadow: capability card top border not found")
+px = lines[top].index("┌")
+rx = lines[top].index("┐")
+w = rx - px + 1
+bottom = None
+for y in range(top + 1, len(rows)):
+    if len(rows[y]) > px and rows[y][px][0] in "└╰+":
+        bottom = y
+if bottom is None or bottom + 1 >= len(rows):
+    sys.exit("card shadow: bottom border or shadow row missing")
+if any(len(rows[y]) <= px + w for y in range(top + 1, bottom + 2)):
+    sys.exit("card shadow: capture rows end before the shadow column")
+if any(len(rows[y]) <= px + 2 for y in range(top + 1, bottom)):
+    sys.exit("card shadow: capture rows end before the card interior")
+inner = {rows[y][px + 2][1] for y in range(top + 1, bottom)}
+shadow = {rows[y][px + w][1] for y in range(top + 1, bottom + 1)}
+if len(inner) != 1 or len(shadow) != 1:
+    sys.exit(f"card shadow: mixed bgs inner={inner} shadow={shadow}")
+panel_bg = inner.pop()
+shadow_bg = shadow.pop()
+if panel_bg is None or shadow_bg is None or panel_bg == shadow_bg:
+    sys.exit(
+        f"card shadow: no distinct shadow (panel={panel_bg}, shadow={shadow_bg})"
+    )
+if rows[bottom + 1][px + 1][1] != shadow_bg:
+    sys.exit("card shadow: bottom shadow row is missing")
+print(f"card shadow: panel={panel_bg} shadow={shadow_bg}")
+PY
+    ok "capability card casts a right and bottom shadow"
+    tmux send-keys -t "$TMUX_SESS" Escape
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if ! tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Eq 'provider +mock'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
 
     tmux send-keys -t "$TMUX_SESS" F2
     i=0
