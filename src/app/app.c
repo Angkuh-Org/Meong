@@ -71,6 +71,19 @@ void msgs_clear(App *a) {
     a->dirty = 1;
 }
 
+void msg_release(Msg *m) {
+    free(m->text);
+    free(m->reason);
+    m->text = NULL;
+    m->reason = NULL;
+    m->len = 0;
+    m->cap = 0;
+    m->chars = 0;
+    m->rlen = 0;
+    m->rcap = 0;
+    m->lay_valid = 0;
+}
+
 int msg_add(App *a, int role, const char *text) {
     if (a->nmsg == a->msgcap) {
         a->msgcap = a->msgcap ? a->msgcap * 2 : 32;

@@ -211,6 +211,57 @@ void fmt_elapsed(double sec, char *out, size_t cap) {
     }
 }
 
+/* Separate from the fit check so draw_header inlines the common "fits"
+ * path and only enters this frame+canary path for an over-long id. */
+static int header_mid_cut(char *buf, size_t cap, const char *mid, int n,
+                          int midmax, int unicode) {
+    int width = midmax - 2;
+    if (width < 1) {
+        width = 1;
+    }
+    size_t eb = unicode ? 3 : 1;
+    if (cap - 1 < eb) {
+        return 0;
+    }
+    size_t maxb = cap - 1 - eb;
+    size_t i = 0;
+    int cols = 0;
+    while (mid[i] && cols < width - 1) {
+        wchar_t wc;
+        int k = utf8_next(mid + i, (size_t)n - i, &wc);
+        if (k <= 0) {
+            break;
+        }
+        int w = wcwidth(wc);
+        if (w < 0) {
+            w = 1;
+        }
+        if (cols + w > width - 1 || i + (size_t)k > maxb) {
+            break;
+        }
+        i += (size_t)k;
+        cols += w;
+    }
+    memcpy(buf, mid, i);
+    memcpy(buf + i, unicode ? "…" : "~", eb);
+    buf[i + eb] = '\0';
+    return cols + 1;
+}
+
+/* 0 when mid fits; else buf gets a UTF-8-safe prefix plus an ellipsis and
+ * the return value is the display width written. */
+int header_mid(char *buf, size_t cap, const char *mid, int midmax,
+               int unicode) {
+    if (!buf || cap == 0 || !mid) {
+        return 0;
+    }
+    int n = (int)strlen(mid);
+    if (n <= midmax - 2) {
+        return 0;
+    }
+    return header_mid_cut(buf, cap, mid, n, midmax, unicode);
+}
+
 static void draw_header(App *a, int rows, int cols) {
     (void)rows;
     if (a->color) {
@@ -245,25 +296,38 @@ static void draw_header(App *a, int rows, int cols) {
     char prov[32];
     backend_label(a->model, prov, sizeof prov);
 
-    /* TODO(fix): getcwd() fails for paths longer than 511 bytes, and this
-     * runs every idle frame even though src/ never chdir()s. Cache the cwd
-     * in App at startup (or refresh if a future command can change it), and
-     * fall back to a shorter suffix instead of dropping to "ready". */
     char right[512];
-    /* TODO(mem): right/fit/midbuf/prov put ~1.7 KB peak on the draw stack.
-     * In-place right truncation was measured: -512 B frame, +16 insn and
-     * +64 B text, so it was rejected. Revisit only if draw-stack size
-     * becomes a constraint. */
+    /* right/fit/midbuf/prov put ~1.7 KB peak on the draw stack. In-place
+     * right truncation was measured: -512 B frame, +16 insn and +64 B text,
+     * so it was rejected. Revisit only if draw-stack size becomes a
+     * constraint. */
     char fit[512];
     const char *show = right;
     int right_dim = 0;
     if (a->streaming) {
         snprintf(right, sizeof right, "%s streaming", sym_status(a));
-    } else if (getcwd(right, sizeof right)) {
+    } else if (a->cwd && a->cwd[0]) {
+        size_t n = strlen(a->cwd);
+        if (n < sizeof right) {
+            memcpy(right, a->cwd, n + 1);
+        } else {
+            size_t eb = a->unicode ? 3 : 1;
+            size_t start = n - (sizeof right - 1 - eb);
+            while (start < n &&
+                   ((unsigned char)a->cwd[start] & 0xC0) == 0x80) {
+                start++;
+            }
+            memcpy(right, a->unicode ? "…" : "~", eb);
+            memcpy(right + eb, a->cwd + start, n - start);
+            right[eb + n - start] = '\0';
+        }
         right_dim = 1;
     } else {
         snprintf(right, sizeof right, "%s ready", sym_status(a));
     }
+    /* TODO(fix): right_w counts bytes, not display columns. A long-cwd
+     * truncation prefixes the 3-byte "…" (1 cell), so the reserve and the
+     * right edge shift left by two; track columns separately. */
     int right_w = (int)strlen(right);
 
     int x = sep_x + 3;
@@ -284,16 +348,10 @@ static void draw_header(App *a, int rows, int cols) {
     const char *mid = a->model ? a->model : "";
     int midn = (int)strlen(mid);
     char midbuf[256];
-    /* TODO(fix): when keep exceeds sizeof midbuf - ellipsis bytes, snprintf
-     * truncates but midn stays keep, so the closing cell, mend and model_x1
-     * run past the drawn text. Clamp keep and derive midn from the ellipsis
-     * width -- not strlen(), because the UTF-8 ellipsis is 3 bytes/1 column. */
-    if (midn > midmax - 2) {
-        int keep = midmax - 2;
-        snprintf(midbuf, sizeof midbuf, "%.*s%s", keep - 1, mid,
-                 a->unicode ? "…" : "~");
+    int fitn = header_mid(midbuf, sizeof midbuf, mid, midmax, a->unicode);
+    if (fitn > 0) {
         mid = midbuf;
-        midn = keep;
+        midn = fitn;
     }
     int mstart = x;
     if (a->color) {
@@ -614,17 +672,16 @@ static void draw_footer(App *a, int rows, int cols, int slash) {
         snprintf(right, sizeof right, "%s new", sym_arrow_down(a));
     } else if (a->have_gen_stats || a->last_trimmed) {
         char n[32] = "";
-        /* TODO(perf): this linearly strcmp()s a->models every frame once gen
-         * stats exist. Cache context_window in App when the model or model
-         * list changes; the whole draw frame is ~324k Ir (96% ncurses/libc),
-         * so measure before taking it. */
-        const ModelCaps *caps =
-            a->model ? model_caps_for(a, a->model) : NULL;
+        if (a->model_ctx == MODEL_CTX_UNSET) {
+            const ModelCaps *caps =
+                a->model ? model_caps_for(a, a->model) : NULL;
+            a->model_ctx = caps ? caps->context_window : -1;
+        }
         if (a->have_gen_stats && a->last_ptok > 0) {
             long long used = a->last_ptok + a->last_ctok;
-            if (caps && caps->context_window > 0) {
-                long long pct = (used * 100 + caps->context_window / 2) /
-                                caps->context_window;
+            if (a->model_ctx > 0) {
+                long long pct =
+                    (used * 100 + a->model_ctx / 2) / a->model_ctx;
                 if (pct < 1) {
                     snprintf(n, sizeof n, "<1%%");
                 } else if (pct > 100) {
@@ -712,7 +769,7 @@ void ui_draw(App *a) {
     draw_header(a, rows, cols);
     draw_chat(a, rows, cols);
     int idx[SLASH_MAX];
-    int slash_n = slash_open_list(a, idx, SLASH_MAX);
+    int slash_n = slash_open_list_at(a, rows, cols, idx, SLASH_MAX);
     if (slash_n > 0) {
         slash_draw(a, rows, cols, idx, slash_n);
     }

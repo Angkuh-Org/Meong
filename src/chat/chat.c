@@ -325,12 +325,7 @@ int finish_generation(App *a, int ok) {
         }
     }
     if (!ok && m->len == 0 && m->rlen == 0) {
-        /* TODO(fix): the guard cannot be false today (msg_add is blocked
-         * while streaming). If it ever can, the frees below leave a live
-         * Msg with dangling text/reason; reset both and their lengths
-         * before dropping the slot. */
-        free(m->text);
-        free(m->reason);
+        msg_release(m);
         if (a->gen_idx == a->nmsg - 1) {
             a->nmsg = a->gen_idx;
         }

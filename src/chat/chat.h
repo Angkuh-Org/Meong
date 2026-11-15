@@ -16,6 +16,7 @@ typedef struct {
 const SlashCmd *slash_cmds(int *n);
 int slash_matches(const App *a, int *idx, int cap);
 int slash_open_list(const App *a, int *idx, int cap);
+int slash_open_list_at(const App *a, int rows, int cols, int *idx, int cap);
 int slash_open(const App *a);
 void slash_move(App *a, int dir);
 void slash_complete(App *a);

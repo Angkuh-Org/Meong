@@ -106,6 +106,8 @@ int ui_init(App *a);
 void ui_draw(App *a);
 
 void backend_label(const char *model, char *out, size_t cap);
+int header_mid(char *buf, size_t cap, const char *mid, int midmax,
+               int unicode);
 int chip_pair(const char *label);
 void fmt_elapsed(double sec, char *out, size_t cap);
 int chat_height(const App *a, int rows);
