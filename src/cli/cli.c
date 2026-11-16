@@ -273,7 +273,7 @@ int cli_oneshot(const Options *o) {
         Buf text;
         buf_init(&text);
         if (!cli.wrote && resp && resp->p && resp->len &&
-            extract_chat_text(resp->p, resp->len, &text, NULL, NULL)) {
+            extract_chat_text(resp->p, resp->len, &text, NULL, NULL, NULL)) {
             fwrite(text.p, 1, text.len, stdout);
             cli.wrote = 1;
         }
@@ -315,7 +315,7 @@ int cli_oneshot(const Options *o) {
         Buf text;
         buf_init(&text);
         int ok = resp && resp->p &&
-                 extract_chat_text(resp->p, resp->len, &text, NULL, NULL);
+                 extract_chat_text(resp->p, resp->len, &text, NULL, NULL, NULL);
         if (!ok || text.len == 0) {
             char emsg[1200];
             if (resp && resp->len &&

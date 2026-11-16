@@ -354,6 +354,8 @@ def main():
     plain_session("mock/error200", "mock says no", "200 json error",
                   close_error=True)
     plain_session("mock/json200", "pong from mock", "raw json fallback", "ctx 12")
+    plain_session("mock/json200cache", "pong from mock", "raw json cache",
+                  "cache 67%")
     plain_session("mock/tinyctx", "pong from mock", "context percentage",
                   "ctx 49%")
 

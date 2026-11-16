@@ -80,7 +80,8 @@ int extract_api_error(const char *json, size_t len, char *out,
 }
 
 int extract_chat_text(const char *json, size_t len, Buf *out,
-                             long *prompt_tokens, long *completion_tokens) {
+                             long *prompt_tokens, long *completion_tokens,
+                             long *cached_tokens) {
     JDoc d = {0};
     if (jdoc_parse(&d, json, len) != 0) {
         return 0;
@@ -98,16 +99,28 @@ int extract_chat_text(const char *json, size_t len, Buf *out,
         jstring(&d, content, out) == 0 && out->len > 0) {
         ok = 1;
     }
-    if (ok && prompt_tokens && completion_tokens) {
-        int usage = jget(&d, root, "usage");
-        if (usage >= 0) {
+    int usage = jget(&d, root, "usage");
+    if (usage >= 0) {
+        if (prompt_tokens) {
             long long v = jint(&d, jget(&d, usage, "prompt_tokens"), -1);
             if (v >= 0) {
                 *prompt_tokens = (long)v;
             }
-            v = jint(&d, jget(&d, usage, "completion_tokens"), -1);
+        }
+        if (completion_tokens) {
+            long long v = jint(&d, jget(&d, usage, "completion_tokens"), -1);
             if (v >= 0) {
                 *completion_tokens = (long)v;
+            }
+        }
+        if (cached_tokens) {
+            int details = jget(&d, usage, "prompt_tokens_details");
+            long long v = details >= 0
+                              ? jint(&d, jget(&d, details, "cached_tokens"),
+                                     -1)
+                              : -1;
+            if (v >= 0) {
+                *cached_tokens = (long)v;
             }
         }
     }

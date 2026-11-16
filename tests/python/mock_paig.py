@@ -21,6 +21,9 @@ MODELS = [
     "mock/tinyctx",
     "mock/flaky",
     "mock/flaky-tmux",
+    "mock/cache",
+    "mock/nocache",
+    "mock/json200cache",
 ]
 FLAKY = {}
 FLAKY_LOCK = threading.Lock()
@@ -62,6 +65,19 @@ def chunk_obj(model, delta, finish=None):
     }
 
 
+def usage_dict(model, prompt=42, completion=7):
+    usage = {
+        "prompt_tokens": prompt,
+        "completion_tokens": completion,
+        "total_tokens": prompt + completion,
+    }
+    if model in ("mock/cache", "mock/json200cache"):
+        usage["prompt_tokens_details"] = {
+            "cached_tokens": 30 if prompt == 42 else 8
+        }
+    return usage
+
+
 def usage_obj(model):
     return {
         "id": "chatcmpl-mock",
@@ -69,11 +85,7 @@ def usage_obj(model):
         "created": int(time.time()),
         "model": model,
         "choices": [],
-        "usage": {
-            "prompt_tokens": 42,
-            "completion_tokens": 7,
-            "total_tokens": 49,
-        },
+        "usage": usage_dict(model),
     }
 
 
@@ -357,7 +369,7 @@ class Handler(BaseHTTPRequestHandler):
                 },
             )
             return
-        if stream and model != "mock/json200":
+        if stream and model not in ("mock/json200", "mock/json200cache"):
             self._stream(model, raw)
             return
         self._json(
@@ -377,11 +389,7 @@ class Handler(BaseHTTPRequestHandler):
                         "finish_reason": "stop",
                     }
                 ],
-                "usage": {
-                    "prompt_tokens": 12,
-                    "completion_tokens": 3,
-                    "total_tokens": 15,
-                },
+                "usage": usage_dict(model, 12, 3),
             },
         )
 
