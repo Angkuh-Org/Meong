@@ -17,8 +17,10 @@ typedef struct {
     int has_reason;
     int has_ptok;
     int has_ctok;
+    int has_cached;
     long long ptok;
     long long ctok;
+    long long cached;
     Buf content;
     Buf reason;
 } Slow;
@@ -29,8 +31,10 @@ typedef struct {
     int has_reason;
     int has_ptok;
     int has_ctok;
+    int has_cached;
     long long ptok;
     long long ctok;
+    long long cached;
     Buf content;
     Buf reason;
 } Fast;
@@ -59,6 +63,14 @@ static void slow_parse(const char *text, size_t len, Slow *s) {
         if (v >= 0) {
             s->has_ctok = 1;
             s->ctok = v;
+        }
+        int details = jget(&d, usage, "prompt_tokens_details");
+        if (details >= 0) {
+            v = jint(&d, jget(&d, details, "cached_tokens"), -1);
+            if (v >= 0) {
+                s->has_cached = 1;
+                s->cached = v;
+            }
         }
     }
     int choices = jget(&d, root, "choices");
@@ -109,6 +121,10 @@ static void fast_parse(const char *text, size_t len, Fast *f) {
         f->has_ctok = 1;
         f->ctok = fd.completion_tokens;
     }
+    if (fd.has_cached && fd.cached_tokens >= 0) {
+        f->has_cached = 1;
+        f->cached = fd.cached_tokens;
+    }
 }
 
 static int buf_eq(const Buf *a, const Buf *b) {
@@ -150,6 +166,11 @@ static void compare_ok(const char *name, const Slow *s, const Fast *f) {
     if (f->has_ctok != s->has_ctok ||
         (f->has_ctok && f->ctok != s->ctok)) {
         printf("FAIL %s: completion_tokens mismatch\n", name);
+        fails++;
+    }
+    if (f->has_cached != s->has_cached ||
+        (f->has_cached && f->cached != s->cached)) {
+        printf("FAIL %s: cached_tokens mismatch\n", name);
         fails++;
     }
 }
@@ -270,6 +291,18 @@ int main(void) {
         "\"completion_tokens\":4}}",
         "{\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":4},"
         "\"choices\":[]}",
+        "{\"choices\":[],\"usage\":{\"prompt_tokens\":42,"
+        "\"completion_tokens\":7,\"prompt_tokens_details\":"
+        "{\"cached_tokens\":30}}}",
+        "{\"choices\":[],\"usage\":{\"prompt_tokens\":42,"
+        "\"completion_tokens\":7,\"prompt_tokens_details\":null}}",
+        "{\"choices\":[],\"usage\":{\"prompt_tokens\":42,"
+        "\"completion_tokens\":7,\"prompt_tokens_details\":"
+        "{\"cached_tokens\":0}}}",
+        "{\"choices\":[],\"usage\":{\"prompt_tokens\":42,"
+        "\"completion_tokens\":7,\"prompt_tokens_details\":"
+        "{\"audio_tokens\":1,\"cached_tokens\":30,"
+        "\"reasoning_tokens\":2}}}",
         "{\"note\":\"choices delta content error\",\"choices\":[{\"delta\":"
         "{\"content\":\"safe\"}}]}",
         "{\"choices\":[{\"delta\":{\"content\":null}}]}",

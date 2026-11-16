@@ -11,7 +11,7 @@
 
 #define APP_NAME "Meong"
 #ifndef APP_VERSION
-#define APP_VERSION "0.8.1"
+#define APP_VERSION "0.9.0"
 #endif
 #define DEFAULT_MODEL "cc/deepseek/deepseek-v4.1-flash"
 
@@ -59,6 +59,8 @@ typedef struct {
     int reason_user_set;
     long ptok;
     long ctok;
+    long cached_tok;
+    unsigned char has_cached;
     double elapsed;
 } Msg;
 
@@ -121,6 +123,8 @@ typedef struct {
     double last_anim;
     long gen_ptok;
     long gen_ctok;
+    long gen_cached;
+    unsigned char gen_has_cached;
     char stream_err[1024];
     int stream_failed;
 
@@ -191,6 +195,8 @@ typedef struct {
     int last_trimmed;
     long last_ptok;
     long last_ctok;
+    long last_cached;
+    unsigned char last_has_cached;
     double last_elapsed;
     char models_warn[1024];
 } App;

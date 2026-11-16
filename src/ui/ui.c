@@ -667,11 +667,16 @@ static void draw_footer(App *a, int rows, int cols, int slash) {
     }
     mvaddnstr(y, 1, hint, cols - 2);
     char right[160];
+    char n[32];
+    size_t pos = 0; /* worst case ~64 B, so appends stay inside right[160] */
+    size_t cache_cut = 0;
+    int had_cache = 0;
     right[0] = '\0';
+    n[0] = '\0';
     if (a->new_below) {
-        snprintf(right, sizeof right, "%s new", sym_arrow_down(a));
+        pos = (size_t)snprintf(right, sizeof right, "%s new",
+                               sym_arrow_down(a));
     } else if (a->have_gen_stats || a->last_trimmed) {
-        char n[32] = "";
         if (a->model_ctx == MODEL_CTX_UNSET) {
             const ModelCaps *caps =
                 a->model ? model_caps_for(a, a->model) : NULL;
@@ -693,23 +698,55 @@ static void draw_footer(App *a, int rows, int cols, int slash) {
                 fmt_count(a->last_ptok, n, sizeof n);
             }
         }
-        if (a->last_trimmed) {
-            if (n[0]) {
-                snprintf(right, sizeof right, "ctx %s | trimmed", n);
-            } else {
-                snprintf(right, sizeof right, "context trimmed");
-            }
-        } else if (n[0]) {
-            snprintf(right, sizeof right, "ctx %s", n);
+        if (n[0]) {
+            pos = (size_t)snprintf(right, sizeof right, "ctx %s", n);
+        } else if (a->last_trimmed) {
+            pos = (size_t)snprintf(right, sizeof right, "context trimmed");
         } else if (a->have_gen_stats && a->last_ctok > 0) {
             fmt_count(a->last_ctok, n, sizeof n);
-            snprintf(right, sizeof right, "out %s", n);
+            pos = (size_t)snprintf(right, sizeof right, "out %s", n);
+        }
+        if (a->have_gen_stats && a->last_ptok > 0) {
+            had_cache = 1;
+            cache_cut = pos;
+            if (a->last_has_cached) {
+                long long pct =
+                    (a->last_cached * 100 + a->last_ptok / 2) /
+                    a->last_ptok;
+                if (pct < 0) {
+                    pct = 0;
+                }
+                if (pct > 100) {
+                    pct = 100;
+                }
+                pos += (size_t)snprintf(right + pos, sizeof right - pos,
+                                        "%scache %lld%%",
+                                        pos ? " | " : "", pct);
+            } else {
+                pos += (size_t)snprintf(right + pos, sizeof right - pos,
+                                        "%scache -", pos ? " | " : "");
+            }
+        }
+        if (a->last_trimmed && n[0]) {
+            pos += (size_t)snprintf(right + pos, sizeof right - pos,
+                                    " | trimmed");
         }
     }
     if (right[0]) {
-        int rl = (int)strlen(right);
+        /* rejected: strlen(right) here measured 0x1c0 frame / 806 ins */
+        int rl = (int)pos;
         int hl = (int)strlen(hint);
-        if (1 + hl + 2 < cols - 1 - rl) {
+        if (!(1 + hl + 2 < cols - 1 - rl) && had_cache) {
+            /* Narrow footer: drop the cache segment before the context. */
+            right[cache_cut] = '\0';
+            pos = cache_cut;
+            if (a->last_trimmed && n[0]) {
+                pos += (size_t)snprintf(right + pos, sizeof right - pos,
+                                        " | trimmed");
+            }
+            rl = (int)pos;
+        }
+        if (right[0] && 1 + hl + 2 < cols - 1 - rl) {
             if (a->color) {
                 wattrset(stdscr, pair_attr(a, a->new_below ? P_WAIT : P_DIM) |
                                       (a->new_below ? A_BOLD : 0));

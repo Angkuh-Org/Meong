@@ -438,6 +438,106 @@ if command -v tmux >/dev/null 2>&1; then
     tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
     TMUX_SESS=""
 
+    TMUX_SESS="Meong-cache-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 110 -y 40 \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/cache --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'hello'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'cache 71%'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'cache 71%' \
+        || fail "footer did not show the cached-token ratio"
+    ok "footer shows the cache hit ratio"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    TMUX_SESS="Meong-cache-narrow-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 40 -y 20 \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/cache --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'hello'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            tail -1 | grep -Fq 'ctx '; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    narrow=$(tmux capture-pane -p -t "$TMUX_SESS" | tail -1)
+    printf '%s\n' "$narrow" | grep -Fq 'ctx ' \
+        || fail "narrow footer lost the context segment"
+    if printf '%s\n' "$narrow" | grep -Fq 'cache'; then
+        fail "narrow footer kept the cache segment"
+    fi
+    ok "narrow footer drops cache before context"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    TMUX_SESS="Meong-nocache-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 110 -y 40 \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/nocache --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'hello'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'cache -'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'cache -' \
+        || fail "footer did not distinguish an absent cache field"
+    ok "footer shows cache - when the gateway omits the field"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
     TMUX_SESS="Meong-spin-$$"
     tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
     tmux new-session -d -s "$TMUX_SESS" -x 110 -y 40 \

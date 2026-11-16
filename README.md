@@ -1,14 +1,23 @@
-# Meong
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/meong-dark.png">
+    <img src=".github/assets/meong-light.png" alt="Meong" width="420">
+  </picture>
+</p>
 
-A small terminal cat that talks to AI through [PAIG](https://github.com/Angkuh-Org/PAIG).
-C11 + ncursesw, no libcurl and no TLS: it speaks plain HTTP/1.1 to the local gateway, decodes
-chunked SSE itself, and streams replies into a scrolling chat.
+<p align="center">A very fast, clean, and small agent harness like a cat.</p>
 
-```
-  /\_/\
- ( o.o )   Meong
-  > ^ <
-```
+<p align="center">
+  <a href="https://github.com/Angkuh-Org/Meong/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/Angkuh-Org/Meong?style=flat-square&color=C5FC08"></a>
+  <a href="https://github.com/Angkuh-Org/Meong/actions/workflows/ci.yml?query=branch%3Amain"><img alt="ci" src="https://img.shields.io/github/actions/workflow/status/Angkuh-Org/Meong/ci.yml?branch=main&style=flat-square&label=ci"></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/Angkuh-Org/Meong?style=flat-square&color=C5FC08"></a>
+  <img alt="platform" src="https://img.shields.io/badge/platform-linux%20%C2%B7%20aarch64%20%2B%20x86__64-C5FC08?style=flat-square">
+  <img alt="binary size" src="https://img.shields.io/badge/binary-~100%20KB-C5FC08?style=flat-square">
+</p>
+
+<p align="center">
+  <a href="https://github.com/Angkuh-Org/Meong/blob/main/.github/assets/home.png"><img src=".github/assets/home.png" alt="Meong TUI" width="100%"></a>
+</p>
 
 ## Install
 
@@ -18,6 +27,26 @@ curl -fsSL https://raw.githubusercontent.com/Angkuh-Org/Meong/main/install.sh | 
 
 The installer verifies the release SHA-256, probes the binary, and installs to
 `~/.local/bin` (`/usr/local/bin` as root). Options: [`docs/install.md`](docs/install.md).
+
+## Run
+
+PAIG must be running; Meong defaults to `http://127.0.0.1:8899`. The gateway
+does not authenticate inbound requests, so keep it on loopback.
+
+```sh
+meong                                          # open the TUI
+meong --oneshot 'hello' \
+  --model cc/deepseek/deepseek-v4.1-flash      # one reply, then exit
+meong --stream --oneshot 'hello' \
+  --model cc/deepseek/deepseek-v4.1-flash      # print tokens as they arrive
+meong --list-models                            # one prefixed model id per line
+```
+
+The examples use the installed binary; from a build tree, use `./build/meong`.
+Inside the TUI, `?` on an empty composer opens the in-app reference. Model ids
+keep their PAIG backend prefix; `--list-models` prints the full ids.
+Selection order, saved state, and the catalogue cache:
+[`docs/models.md`](docs/models.md).
 
 ## Build
 
@@ -37,28 +66,14 @@ max-page-size on aarch64 and links ~133 KB.
 Release binaries are built on Ubuntu 22.04 and need glibc 2.35+,
 `libncursesw.so.6`/`libtinfo.so.6`, and a terminfo entry (`ncurses-base`).
 
-## Development
+## Docs
 
-Module map and where new code belongs: [`docs/layout.md`](docs/layout.md).
-Release and prebuilt requirements: [`docs/release.md`](docs/release.md).
-
-## Run
-
-```sh
-./build/meong             # opens the TUI
-./build/meong --oneshot 'hello' --model cc/deepseek/deepseek-v4.1-flash
-./build/meong --stream --oneshot 'hello' --model cc/deepseek/deepseek-v4.1-flash
-./build/meong --list-models
-```
-
-`--oneshot` prints the reply and exits; add `--stream` to print tokens as they
-arrive. `--list-models` prints one prefixed model id per line.
-
-On first launch Meong fetches and caches the model list, then opens the model
-picker. The last selected model is remembered in
-`$XDG_CONFIG_HOME/meong/state`. Model ids must keep their PAIG backend prefix
-(`cc/…`, `opencode/…`, `kilo/…`, `bob/…`, `mistral/…`); the picker handles that
-for you.
+- [Install](docs/install.md) — installer options and PATH.
+- [Usage](docs/usage.md) — keys, commands, configuration, behavior.
+- [Models](docs/models.md) — selection, state, cache, capability card.
+- [Performance method](docs/perf.md) — benchmark method and raw numbers.
+- [Layout](docs/layout.md) — module map.
+- [Release](docs/release.md) — assets and runtime requirements.
 
 ## Performance
 
@@ -77,95 +92,6 @@ trees, same mock workload:
 These are loopback instruction ratios, not gateway latency; the wall-clock
 row uses the same local mock on both sides. Method and raw numbers:
 [`docs/perf.md`](docs/perf.md).
-
-## Keys
-
-| Key | Action |
-| --- | --- |
-| `enter` | send; queue the prompt while a reply streams |
-| `/` | command menu: type to filter, `up`/`down` to focus, `enter`/`tab` to complete, `esc` to close |
-| `?` | open help when the composer is empty |
-| `tab` | model picker (type to filter) |
-| `pgup` / `pgdn` | scroll the conversation |
-| `ctrl-g` / `ctrl-t` | jump to bottom / top |
-| `ctrl-c` | cancel a reply; quit when idle |
-| `ctrl-d` | quit on empty input |
-| `ctrl-l` | redraw |
-| `ctrl-o` | expand or fold the last reasoning block |
-| `f1` / click `Meong` | pet the cat (live cat card) |
-| `f2` / click the model | show the model capability card |
-| `up` / `down` | input history |
-| mouse wheel | scroll |
-| click / tap thinking | expand or fold reasoning |
-
-When a request fails, Meong opens a `request failed` window with two choices.
-`retry` replays the request that failed; `close` dismisses the window. The
-failure lives only in the window, so no error row is added to the transcript.
-Use `up`/`down` (or `tab`) to choose, `enter` to activate, `r` to retry,
-`c`/`esc` to close, or click a row.
-
-## Commands
-
-Type `/` in the composer to list these in a filterable menu; `enter` or `tab`
-completes the focused command, and an already-complete command runs on the
-first `enter`.
-
-| Command | Action |
-| --- | --- |
-| `/model [id]` | open the picker, or switch directly |
-| `/models` | refresh the gateway model list |
-| `/system [p]` | show, set, or clear (`off`) the system prompt |
-| `/clear` | forget the conversation |
-| `/retry` | regenerate the last answer |
-| `/help` | help overlay |
-| `/quit` | leave |
-
-## Configuration
-
-| Variable | Purpose |
-| --- | --- |
-| `MEONG_URL` / `PAIG_URL` | gateway base, default `http://127.0.0.1:8899` |
-| `PAIG_HOST` / `PAIG_PORT` | used when no URL is set |
-| `MEONG_MODEL` | initial model id |
-| `MEONG_CONFIG_DIR` | overrides the state directory |
-| `MEONG_CACHE_DIR` | overrides the model cache directory |
-| `MEONG_ASCII` | force ASCII borders and symbols |
-| `MEONG_NO_NERD` | hide the Nerd Font cat before `Meong` |
-| `MEONG_NO_MOUSE` | disable mouse and touch input |
-| `NO_COLOR` | disable color |
-| `MEONG_WIRE_DEBUG` | dump parsed HTTP/SSE lines to stderr |
-
-The gateway does not authenticate inbound requests. Keep PAIG on loopback.
-
-## Notes
-
-- Transport is a hand-rolled nonblocking HTTP/1.1 client, one connection per
-  request. It handles chunked transfer, SSE `data:` frames, `[DONE]`, and plain
-  JSON error bodies that arrive without SSE framing.
-- With a Nerd Font, the header draws `nf-fa-cat` (U+EEED) before `Meong`;
-  `--no-nerd` or `MEONG_NO_NERD` drops just that glyph, while `--ascii` drops
-  all non-ASCII chrome.
-- Clicking `Meong` (or `f1`) pets the cat: the card reacts, counts pets, and
-  shows the live model, message and token totals, and mood. Typing closes it
-  and still reaches the composer.
-- Clicking the provider/model in the header (or `f2`) opens the capability
-  card: context window, output limit, vision/tools/reasoning/caching, and cost
-  when the gateway reports them. Fields the gateway did not report are listed
-  as `not reported:`; values filled by PAIG from models.dev carry a
-  `~ models.dev estimate` footer. `/models` refreshes both the catalogue and
-  the card.
-- `reasoning_content` / `reasoning` deltas are shown dimmed above the answer
-  while streaming, then fold when the reply finishes; a cancelled reply stays
-  open. Click or tap the thinking line — or any reasoning line — to expand or
-  fold it, or press `ctrl-o` for the last reasoning block.
-- Requests keep the newest ~200 KB of user/assistant text. Older turns are
-  dropped, replaced by a one-line system note, and the footer shows `trimmed`;
-  the visible transcript keeps everything until `/clear`.
-- Code fences are rendered in a separate color; input supports UTF-8 and wide
-  characters.
-- Vendored [`jsmn`](src/json/jsmn.h) remains the JSON fallback; a fast delta
-  scanner handles the common SSE frame, and the wrapper owns unescaping,
-  surrogate pairs, and traversal.
 
 ## License
 

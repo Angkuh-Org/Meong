@@ -39,10 +39,9 @@ chat click.
 per-model capabilities, picker, help, pet-card, capability-card and
 error-window state, the active stream, the prompt queue, the scroll/layout
 cache, composer text, history, and theme flags. `app.c` owns
-message and queue storage and the config/cache directory rules —
-`MEONG_CONFIG_DIR`,
-`XDG_CONFIG_HOME`, then `~/.config/meong` (and the cache equivalents).
-`state.c` reads and writes the last selected model as one line in `state`.
+message and queue storage and the config/cache directory rules. `state.c`
+reads and writes the last selected model; user-facing behavior is in
+[`models.md`](models.md).
 
 ## `src/api/`
 
@@ -53,9 +52,9 @@ message and queue storage and the config/cache directory rules —
 fetches `/v1/models` (relative to the configured base), parses each entry's
 `capabilities` object (tri-state: absent, no, yes) alongside the id, sorts and
 caches the pairs in `models` with a `#meong-models-v3` header, and picks a
-default in this order: exact `DEFAULT_MODEL`, the first `cc/` id, the first
-entry. A v1 plain-id or v2 cache returns a "refetch" flag so `tui_main()`
-migrates it once; a failed refresh keeps the old ids.
+default. An older cache returns a refetch flag so `tui_main()` migrates it
+once; a failed refresh keeps the old ids. Selection, state, and cache behavior
+are documented in [`models.md`](models.md).
 
 ## `src/chat/`
 

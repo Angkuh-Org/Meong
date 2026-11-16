@@ -94,6 +94,10 @@ static void stream_apply(App *a, const JDelta *fd) {
     if (fd->has_ctok && fd->completion_tokens >= 0) {
         a->gen_ctok = (long)fd->completion_tokens;
     }
+    if (fd->has_cached && fd->cached_tokens >= 0) {
+        a->gen_cached = (long)fd->cached_tokens;
+        a->gen_has_cached = 1;
+    }
     if (a->gen_idx < 0 || a->gen_idx >= a->nmsg) {
         return;
     }
@@ -137,6 +141,14 @@ static int stream_apply_json(App *a, const char *data, size_t len) {
         v = jint(d, jget(d, usage, "completion_tokens"), -1);
         if (v >= 0) {
             a->gen_ctok = (long)v;
+        }
+        int details = jget(d, usage, "prompt_tokens_details");
+        if (details >= 0) {
+            v = jint(d, jget(d, details, "cached_tokens"), -1);
+            if (v >= 0) {
+                a->gen_cached = (long)v;
+                a->gen_has_cached = 1;
+            }
         }
     }
     int choices = jget(d, root, "choices");
@@ -202,6 +214,8 @@ int start_generation(App *a) {
     char err[512];
     a->gen_ptok = 0;
     a->gen_ctok = 0;
+    a->gen_cached = 0;
+    a->gen_has_cached = 0;
     a->stream_err[0] = '\0';
     a->stream_failed = 0;
     int idx = msg_add(a, ROLE_ASSISTANT, "");
@@ -291,8 +305,9 @@ int finish_generation(App *a, int ok) {
         } else {
             Buf txt;
             buf_init(&txt);
+            long cached = -1;
             if (extract_chat_text(body->p, body->len, &txt, &a->gen_ptok,
-                                  &a->gen_ctok)) {
+                                  &a->gen_ctok, &cached)) {
                 if (m->len > 0) {
                     msg_append(m, "\n", 1);
                 }
@@ -300,6 +315,10 @@ int finish_generation(App *a, int ok) {
                     ok = 0;
                     snprintf(emsg, sizeof emsg, "the reply is too large");
                 }
+            }
+            if (cached >= 0) {
+                a->gen_cached = cached;
+                a->gen_has_cached = 1;
             }
             buf_free(&txt);
         }
@@ -317,10 +336,14 @@ int finish_generation(App *a, int ok) {
             m->elapsed = now_sec() - a->gen_start;
             m->ptok = a->gen_ptok;
             m->ctok = a->gen_ctok;
+            m->cached_tok = a->gen_cached;
+            m->has_cached = a->gen_has_cached;
             m->has_stats = 1;
             a->have_gen_stats = 1;
             a->last_ptok = a->gen_ptok;
             a->last_ctok = a->gen_ctok;
+            a->last_cached = a->gen_cached;
+            a->last_has_cached = a->gen_has_cached;
             a->last_elapsed = m->elapsed;
         }
     }

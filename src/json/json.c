@@ -705,6 +705,60 @@ static int jscan_int_value(JScan *s, long long *out, unsigned char *has) {
     return 0;
 }
 
+/*
+ * PAIG emits usage once at end of stream, not per delta: keep this parser
+ * out of jdelta_scan's per-event footprint. noinline alone grew .text by
+ * 224 B; cold keeps the layout win size-neutral.
+ */
+__attribute__((noinline, cold))
+static int jscan_usage_details(JScan *s, JDelta *o) {
+    jscan_ws(s);
+    if (s->i >= s->len || s->p[s->i] != '{') {
+        return jscan_skip(s, 0);
+    }
+    s->i++;
+    jscan_ws(s);
+    if (s->i < s->len && s->p[s->i] == '}') {
+        s->i++;
+        return 0;
+    }
+    for (;;) {
+        const char *k;
+        int kn;
+        if (jscan_string(s, &k, &kn) != 0) {
+            return -1;
+        }
+        jscan_ws(s);
+        if (s->i >= s->len || s->p[s->i] != ':') {
+            return -1;
+        }
+        s->i++;
+        jscan_ws(s);
+        if (jscan_key_eq(k, kn, "cached_tokens") && !o->has_cached) {
+            if (jscan_int_value(s, &o->cached_tokens,
+                                &o->has_cached) != 0) {
+                return -1;
+            }
+        } else if (jscan_skip(s, 0) != 0) {
+            return -1;
+        }
+        jscan_ws(s);
+        if (s->i >= s->len) {
+            return -1;
+        }
+        if (s->p[s->i] == ',') {
+            s->i++;
+            continue;
+        }
+        if (s->p[s->i] == '}') {
+            s->i++;
+            break;
+        }
+        return -1;
+    }
+    return 0;
+}
+
 static int jscan_usage(JScan *s, JDelta *o) {
     jscan_ws(s);
     if (s->i >= s->len || s->p[s->i] != '{') {
@@ -740,6 +794,11 @@ static int jscan_usage(JScan *s, JDelta *o) {
             if (jscan_int_value(s, &o->completion_tokens, &o->has_ctok) != 0) {
                 return -1;
             }
+        } else if (jscan_key_eq(k, kn, "prompt_tokens_details") &&
+                   !o->has_cached) {
+            if (jscan_usage_details(s, o) != 0) {
+                return -1;
+            }
         } else if (jscan_skip(s, 0) != 0) {
             return -1;
         }
@@ -762,8 +821,9 @@ static int jscan_usage(JScan *s, JDelta *o) {
 
 /*
  * Fast path contract: every field stream_apply() reads (content, reason,
- * prompt_tokens, completion_tokens) must be mirrored here; a field this
- * scanner ignores becomes silently absent on the fast path.
+ * prompt_tokens, completion_tokens, prompt_tokens_details.cached_tokens)
+ * must be mirrored here; a field this scanner ignores becomes silently
+ * absent on the fast path.
  */
 int jdelta_scan(const char *text, size_t len, JDelta *out) {
     memset(out, 0, sizeof *out);
