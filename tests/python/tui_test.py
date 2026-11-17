@@ -134,8 +134,9 @@ def fail(msg, *sessions):
     raise SystemExit(1)
 
 
-def plain_session(model, needle, label, done_marker=None, close_error=False):
-    s = Session(["--url", URL, "--model", model, "--no-mouse"])
+def plain_session(model, needle, label, done_marker=None, close_error=False,
+                  extra=()):
+    s = Session(["--url", URL, "--model", model, "--no-mouse", *extra])
     try:
         if not s.wait_for("ask anything"):
             fail(f"{label}: chat screen never appeared", s)
@@ -356,6 +357,45 @@ def main():
     plain_session("mock/json200", "pong from mock", "raw json fallback", "ctx 12")
     plain_session("mock/json200cache", "pong from mock", "raw json cache",
                   "cache 67%")
+    plain_session("mock/tools", "tool said:", "whole tool call", "cache -",
+                  extra=["--yolo"])
+    plain_session("mock/tools-frag", "tool said:", "fragmented tool call",
+                  "cache -", extra=["--yolo"])
+
+    s = Session(["--url", URL, "--model", "mock/tools", "--no-mouse"])
+    try:
+        if not s.wait_for("ask anything"):
+            fail("tool permission: chat screen never appeared", s)
+        s.send(b"hi\r")
+        if not s.wait_for("permission required", 10):
+            fail("tool permission: prompt never appeared", s)
+        s.send(b"n")
+        if not s.wait_for("tool said:", 10):
+            fail("tool permission: denied call did not reach the model", s)
+        s.send(b"/quit\r")
+        if not s.wait_exit(6):
+            fail("tool permission: TUI did not exit", s)
+        print("ok - tui tool permission deny")
+    finally:
+        s.close()
+
+    s = Session(["--url", URL, "--model", "mock/tools", "--no-mouse"])
+    try:
+        if not s.wait_for("ask anything"):
+            fail("tool permission allow: chat screen never appeared", s)
+        s.send(b"hi\r")
+        if not s.wait_for("permission required", 10):
+            fail("tool permission allow: prompt never appeared", s)
+        s.send(b"y")
+        if not s.wait_for("tool said:", 10):
+            fail("tool permission allow: allowed call did not reach the model",
+                 s)
+        s.send(b"/quit\r")
+        if not s.wait_exit(6):
+            fail("tool permission allow: TUI did not exit", s)
+        print("ok - tui tool permission allow")
+    finally:
+        s.close()
     plain_session("mock/tinyctx", "pong from mock", "context percentage",
                   "ctx 49%")
 

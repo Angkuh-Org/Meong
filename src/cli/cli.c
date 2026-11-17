@@ -57,6 +57,7 @@ void usage(FILE *out) {
             "  --no-nerd          plain brand, no Nerd Font icon\n"
             "  --no-mouse         disable mouse and touch input\n"
             "  --no-color         disable color\n"
+            "  --yolo             allow tools outside the working directory\n"
             "  -h, --help         this text\n"
             "  -V, --version      version\n"
             "\n"
@@ -117,6 +118,8 @@ int parse_args(int argc, char **argv, Options *o) {
             o->no_mouse = 1;
         } else if (strcmp(arg, "--no-color") == 0) {
             o->no_color = 1;
+        } else if (strcmp(arg, "--yolo") == 0) {
+            o->yolo = 1;
         } else if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
             o->help = 1;
         } else if (strcmp(arg, "-V") == 0 || strcmp(arg, "--version") == 0) {

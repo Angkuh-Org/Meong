@@ -53,10 +53,16 @@ char *cache_dir(void) {
 
 void msgs_clear(App *a) {
     for (int i = 0; i < a->nmsg; i++) {
-        free(a->msgs[i].text);
-        free(a->msgs[i].reason);
+        msg_release(&a->msgs[i]);
     }
     a->nmsg = 0;
+    a->tool_round = 0;
+    a->tool_pending = 0;
+    a->tool_allow_all = 0;
+    a->tool_call_pos = 0;
+    a->tool_msg_idx = -1;
+    a->gen_finish_tool = 0;
+    tool_accum_clear(&a->tool_accum);
     a->have_gen_stats = 0;
     a->last_failed = 0;
     a->last_trimmed = 0;
@@ -74,8 +80,23 @@ void msgs_clear(App *a) {
 void msg_release(Msg *m) {
     free(m->text);
     free(m->reason);
+    for (int i = 0; i < m->ncalls; i++) {
+        free(m->calls[i].id);
+        free(m->calls[i].name);
+        free(m->calls[i].args);
+    }
+    free(m->calls);
+    free(m->call_id);
+    free(m->tool_name);
     m->text = NULL;
     m->reason = NULL;
+    m->calls = NULL;
+    m->ncalls = 0;
+    m->calls_cap = 0;
+    m->args_bytes = 0;
+    m->call_id = NULL;
+    m->tool_name = NULL;
+    m->tool_error = 0;
     m->len = 0;
     m->cap = 0;
     m->chars = 0;

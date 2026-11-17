@@ -55,6 +55,11 @@ first `enter`.
 | `/help` | help overlay |
 | `/quit` | leave |
 
+## Tools
+
+Read-only tools, the cwd permission prompt, `--yolo`, and output bounds:
+[`tools.md`](tools.md).
+
 ## Configuration
 
 | Variable | Purpose |
@@ -67,6 +72,7 @@ first `enter`.
 | `MEONG_ASCII` | force ASCII borders and symbols |
 | `MEONG_NO_NERD` | hide the Nerd Font cat before `Meong` |
 | `MEONG_NO_MOUSE` | disable mouse and touch input |
+| `MEONG_YOLO` | allow tools outside the working directory |
 | `NO_COLOR` | disable color |
 | `MEONG_WIRE_DEBUG` | dump parsed HTTP/SSE lines to stderr |
 

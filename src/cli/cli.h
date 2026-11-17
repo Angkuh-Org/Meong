@@ -14,6 +14,7 @@ typedef struct {
     int no_nerd;
     int no_mouse;
     int no_color;
+    int yolo;
     int help;
     int version;
 } Options;

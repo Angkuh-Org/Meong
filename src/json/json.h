@@ -54,11 +54,18 @@ typedef struct {
     long long prompt_tokens;
     long long completion_tokens;
     long long cached_tokens;
+    const char *finish;
+    int finish_len;
+    const char *tool_args;
+    int tool_args_len;
+    int tool_index;
     unsigned char has_content;
     unsigned char has_reason;
     unsigned char has_ptok;
     unsigned char has_ctok;
     unsigned char has_cached;
+    unsigned char has_finish;
+    unsigned char has_tool_index;
 } JDelta;
 
 int jdelta_scan(const char *text, size_t len, JDelta *out);

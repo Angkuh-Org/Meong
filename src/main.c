@@ -185,6 +185,26 @@ static void handle_mouse(App *a) {
 }
 
 static void handle_key(App *a, wint_t wch, int special) {
+    if (a->tool_pending) {
+        if (!special && (wch == 'y' || wch == 'Y')) {
+            if (resume_tool_calls(a, 1)) {
+                drain_queue(a);
+            }
+            return;
+        }
+        if (!special &&
+            (wch == 'n' || wch == 'N' || wch == 27)) {
+            if (resume_tool_calls(a, 0)) {
+                drain_queue(a);
+            }
+            return;
+        }
+        if (!special && wch == 3) {
+            cancel_tool_chain(a);
+            return;
+        }
+        return;
+    }
     if (special) {
         if (wch == KEY_RESIZE) {
             a->layout_dirty = 1;
@@ -491,8 +511,7 @@ static int tui_main(const Options *o) {
     if (endpoint_parse(url, &a.ep, err, sizeof err) != 0) {
         fprintf(stderr, "Meong: %s\n", err);
         free(url);
-        /* TODO(mem): a.cwd was allocated above; free it here too. Only a
-         * harness sees this leak because the process exits today. */
+        free(a.cwd);
         return 1;
     }
     a.url = url;
@@ -510,6 +529,8 @@ static int tui_main(const Options *o) {
     if (o->no_color || getenv("NO_COLOR")) {
         a.color = 0;
     }
+    a.tools_enabled = 1;
+    a.yolo = o->yolo || (getenv("MEONG_YOLO") && *getenv("MEONG_YOLO"));
 
     char *saved_model = state_load_model();
     int legacy_cache = models_load_cache(&a);

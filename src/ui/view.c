@@ -175,7 +175,7 @@ static void layout_message(App *a, int mi, int incremental) {
     int inc_text_start = m->lay_text_start;
     m->lay_valid = 0;
 
-    if (m->role == ROLE_NOTE) {
+    if (m->role == ROLE_NOTE || m->role == ROLE_TOOL) {
         if (m->len == 0) {
             line_push(a, RL_NOTE, mi, 0, 0, 0);
         } else {
