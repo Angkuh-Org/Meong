@@ -85,10 +85,14 @@ int retry_last(App *a) {
         return 0;
     }
     for (int j = i + 1; j < a->nmsg; j++) {
-        free(a->msgs[j].text);
-        free(a->msgs[j].reason);
+        msg_release(&a->msgs[j]);
     }
     a->nmsg = i + 1;
+    a->tool_round = 0;
+    a->tool_pending = 0;
+    a->tool_allow_all = 0;
+    a->tool_call_pos = 0;
+    a->tool_msg_idx = -1;
     a->follow = 1;
     a->new_below = 0;
     /* The streaming draw throttle would otherwise reuse rows that point at

@@ -67,7 +67,7 @@ ok "json: cached skip matches the recursive walk"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/jdelta_test" tests/c/jdelta_test.c src/json/json.c \
-    src/util/util.c \
+    src/chat/tool_accum.c src/util/util.c \
     || fail "jdelta test did not compile"
 "$TMP/jdelta_test" >/dev/null \
     || fail "fast delta scanner diverged from jsmn"
@@ -75,11 +75,29 @@ ok "json: fast delta scanner matches jsmn"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/msg_release_test" \
-    tests/c/msg_release_test.c src/app/app.c src/util/util.c \
+    tests/c/msg_release_test.c src/app/app.c src/chat/tool_accum.c \
+    src/util/util.c \
     || fail "msg_release test did not compile"
 "$TMP/msg_release_test" >/dev/null \
     || fail "msg_release left stale state"
 ok "app: msg_release clears the message and is idempotent"
+
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
+    -o "$TMP/tool_accum_test" \
+    tests/c/tool_accum_test.c src/chat/tool_accum.c src/util/util.c \
+    || fail "tool accumulator test did not compile"
+"$TMP/tool_accum_test" >/dev/null \
+    || fail "tool accumulator merged or lost calls"
+ok "tools: accumulator handles whole and fragmented calls"
+
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
+    -o "$TMP/tools_test" \
+    tests/c/tools_test.c src/tools/tools.c src/tools/exec.c \
+    src/json/json.c src/util/util.c \
+    || fail "tools test did not compile"
+"$TMP/tools_test" >/dev/null \
+    || fail "tool handlers failed"
+ok "tools: read_file, search, list_dir and result bounding"
 
 LAYOUT_SRCS=$(find src -name '*.c' ! -path 'src/rules/*' \
     ! -path 'src/main.c' ! -path 'src/ui/view.c' | sort)

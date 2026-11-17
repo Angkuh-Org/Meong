@@ -584,7 +584,10 @@ static void draw_input(App *a, int rows, int cols) {
     }
     if (a->ilen == 0) {
         wattrset(stdscr, pair_attr(a, P_DIM));
-        const char *ph = a->streaming ? "queue a message" : "ask anything";
+        const char *ph = a->tool_pending
+                             ? "permission: y allow / n deny"
+                             : (a->streaming ? "queue a message"
+                                             : "ask anything");
         mvaddnstr(top + 1, tx, ph, avail);
         a->cur_y = top + 1;
         a->cur_x = tx;

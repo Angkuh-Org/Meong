@@ -24,6 +24,8 @@ MODELS = [
     "mock/cache",
     "mock/nocache",
     "mock/json200cache",
+    "mock/tools",
+    "mock/tools-frag",
 ]
 FLAKY = {}
 FLAKY_LOCK = threading.Lock()
@@ -41,8 +43,35 @@ CAPABILITIES = {
     "mock/tinyctx": {
         "context_window": 100,
     },
+    "mock/tools": {
+        "context_window": 131072,
+        "max_output_tokens": 65536,
+        "supports_function_calling": True,
+        "supports_reasoning": False,
+        "supports_prompt_caching": True,
+        "input_cost_per_token": 0,
+        "output_cost_per_token": 0,
+        "estimated": True,
+    },
+    "mock/tools-frag": {
+        "context_window": 131072,
+        "max_output_tokens": 65536,
+        "supports_function_calling": True,
+        "supports_reasoning": False,
+        "supports_prompt_caching": True,
+        "input_cost_per_token": 0,
+        "output_cost_per_token": 0,
+        "estimated": True,
+    },
 }
 CHUNKS = [3, 11, 1, 7, 19, 5, 13, 2]
+TOOL_CALL_ID = "call_1"
+TOOL_NAME = "read_file"
+TOOL_ARGS = '{"path":"/proj/version.txt"}'
+# mock/tools-frag ships TOOL_ARGS split into exactly these three deltas; the
+# later two carry neither `index` nor `id`, so a client that only joins by
+# index or id sees three calls, not one. See tool_accum.c.
+TOOL_ARG_FRAGS = ['{"path":', '"/proj/', 'version.txt"}']
 
 
 def sse_frame(obj):
@@ -87,6 +116,28 @@ def usage_obj(model):
         "choices": [],
         "usage": usage_dict(model),
     }
+
+
+def tool_result_error(req):
+    """Check every role:"tool" message against the call_1/read_file contract.
+
+    Returns None when the tool turn is well formed, else a reason string that
+    do_POST serves as HTTP 400 so a broken client fails loudly instead of
+    silently passing the TUI test.
+    """
+    for m in req.get("messages") or []:
+        if m.get("role") != "tool":
+            continue
+        if m.get("tool_call_id") != TOOL_CALL_ID:
+            return "tool_call_id must be %r, got %r" % (
+                TOOL_CALL_ID,
+                m.get("tool_call_id"),
+            )
+        if m.get("name") != TOOL_NAME:
+            return "tool name must be %r, got %r" % (TOOL_NAME, m.get("name"))
+        if not m.get("content"):
+            return "tool content must be non-empty"
+    return None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -215,6 +266,98 @@ class Handler(BaseHTTPRequestHandler):
                 b"data: [DONE]\n\n",
             ]
             payload = b"".join(frames)
+        elif model in ("mock/tools", "mock/tools-frag"):
+            try:
+                req = json.loads(body)
+                answered = any(
+                    m.get("role") == "tool" for m in req.get("messages") or []
+                )
+            except (ValueError, TypeError):
+                answered = False
+            if answered:
+                text = ""
+                for m in req.get("messages") or []:
+                    if m.get("role") == "tool":
+                        c = m.get("content")
+                        text = c if isinstance(c, str) else json.dumps(c)
+                frames = [
+                    sse_frame(chunk_obj(model, {"content": "tool said: " + text})),
+                    sse_frame(chunk_obj(model, {}, "stop")),
+                    sse_frame(usage_obj(model)),
+                    b"data: [DONE]\n\n",
+                ]
+            elif model == "mock/tools":
+                frames = [
+                    sse_frame(
+                        chunk_obj(
+                            model,
+                            {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": TOOL_CALL_ID,
+                                        "type": "function",
+                                        "function": {
+                                            "name": TOOL_NAME,
+                                            "arguments": TOOL_ARGS,
+                                        },
+                                    }
+                                ]
+                            },
+                        )
+                    ),
+                    sse_frame(chunk_obj(model, {}, "tool_calls")),
+                    sse_frame(usage_obj(model)),
+                    b"data: [DONE]\n\n",
+                ]
+            else:
+                frames = [
+                    sse_frame(
+                        chunk_obj(
+                            model,
+                            {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": TOOL_CALL_ID,
+                                        "type": "function",
+                                        "function": {
+                                            "name": TOOL_NAME,
+                                            "arguments": TOOL_ARG_FRAGS[0],
+                                        },
+                                    }
+                                ]
+                            },
+                        )
+                    ),
+                    # No index and no id on purpose: only a client that
+                    # appends an unattributed fragment to the previous call
+                    # folds this in; an index/id-keyed one opens a new slot.
+                    sse_frame(
+                        chunk_obj(
+                            model,
+                            {
+                                "tool_calls": [
+                                    {"function": {"arguments": TOOL_ARG_FRAGS[1]}}
+                                ]
+                            },
+                        )
+                    ),
+                    sse_frame(
+                        chunk_obj(
+                            model,
+                            {
+                                "tool_calls": [
+                                    {"function": {"arguments": TOOL_ARG_FRAGS[2]}}
+                                ]
+                            },
+                        )
+                    ),
+                    sse_frame(chunk_obj(model, {}, "tool_calls")),
+                    sse_frame(usage_obj(model)),
+                    b"data: [DONE]\n\n",
+                ]
+            payload = b"".join(frames)
         else:
             payload = b"".join(
                 [
@@ -257,6 +400,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         model = req.get("model", "")
         stream = bool(req.get("stream"))
+
+        if model in ("mock/tools", "mock/tools-frag"):
+            err = tool_result_error(req)
+            if err:
+                self._json(
+                    400,
+                    {"error": {"message": "mock %s: %s" % (model, err)}},
+                )
+                return
 
         if model in ("mock/flaky", "mock/flaky-tmux"):
             with FLAKY_LOCK:

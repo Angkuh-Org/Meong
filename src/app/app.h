@@ -6,12 +6,14 @@
 #include <wchar.h>
 
 #include "json/json.h"
+#include "chat/tool_accum.h"
 #include "net/net.h"
+#include "tools/tools.h"
 #include "util/util.h"
 
 #define APP_NAME "Meong"
 #ifndef APP_VERSION
-#define APP_VERSION "0.9.0"
+#define APP_VERSION "0.10.0"
 #endif
 #define DEFAULT_MODEL "cc/deepseek/deepseek-v4.1-flash"
 
@@ -27,6 +29,7 @@ enum {
     ROLE_USER,
     ROLE_ASSISTANT,
     ROLE_NOTE,
+    ROLE_TOOL,
 };
 
 /* The retry button replays whichever request produced the error. */
@@ -62,6 +65,13 @@ typedef struct {
     long cached_tok;
     unsigned char has_cached;
     double elapsed;
+    ToolCall *calls;
+    int ncalls;
+    int calls_cap;
+    size_t args_bytes;
+    char *call_id;
+    char *tool_name;
+    int tool_error;
 } Msg;
 
 /* ui/view.c owns the layout row definition. */
@@ -125,6 +135,18 @@ typedef struct {
     long gen_ctok;
     long gen_cached;
     unsigned char gen_has_cached;
+    /* TODO(dead): written by stream_apply/stream_apply_json, never read;
+     * finish_generation keys on m->ncalls. Remove it or wire a consumer. */
+    int gen_finish_tool;
+    ToolAccum tool_accum;
+    int tool_round;
+    int tool_msg_idx;
+    int tool_call_pos;
+    int tool_pending;
+    int tool_allow_all;
+    char perm_path[1024];
+    int tools_enabled;
+    int yolo;
     char stream_err[1024];
     int stream_failed;
 
