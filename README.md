@@ -12,7 +12,7 @@
   <a href="https://github.com/Angkuh-Org/Meong/actions/workflows/ci.yml?query=branch%3Amain"><img alt="ci" src="https://img.shields.io/github/actions/workflow/status/Angkuh-Org/Meong/ci.yml?branch=main&style=flat-square&label=ci"></a>
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/Angkuh-Org/Meong?style=flat-square&color=C5FC08"></a>
   <img alt="platform" src="https://img.shields.io/badge/platform-linux%20%C2%B7%20aarch64%20%2B%20x86__64-C5FC08?style=flat-square">
-  <img alt="binary size" src="https://img.shields.io/badge/binary-~100%20KB-C5FC08?style=flat-square">
+  <img alt="binary size" src="https://img.shields.io/badge/binary-~130%20KB-C5FC08?style=flat-square">
 </p>
 
 <p align="center">
@@ -48,6 +48,10 @@ keep their PAIG backend prefix; `--list-models` prints the full ids.
 Selection order, saved state, and the catalogue cache:
 [`docs/models.md`](docs/models.md).
 
+Read-only tools (`read_file`, `search`, `list_dir`) run inside the working
+directory; outside paths prompt for permission, and `--yolo` disables that
+prompt. Details: [`docs/tools.md`](docs/tools.md).
+
 ## Build
 
 Requires `cc`, `ncursesw` headers, and `pkg-config` (optional; the build falls
@@ -60,8 +64,8 @@ back to `-lncursesw`).
 ./tests/test.sh         # offline mock + pty/tmux TUI tests
 ```
 
-A local stripped build is ~100 KB with lld; GNU bfd defaults to 64K
-max-page-size on aarch64 and links ~133 KB.
+A local stripped build is ~130 KB with lld; GNU bfd defaults to 64K
+max-page-size on aarch64 and links a larger binary.
 
 Release binaries are built on Ubuntu 22.04 and need glibc 2.35+,
 `libncursesw.so.6`/`libtinfo.so.6`, and a terminfo entry (`ncurses-base`).
@@ -71,6 +75,7 @@ Release binaries are built on Ubuntu 22.04 and need glibc 2.35+,
 - [Install](docs/install.md) — installer options and PATH.
 - [Usage](docs/usage.md) — keys, commands, configuration, behavior.
 - [Models](docs/models.md) — selection, state, cache, capability card.
+- [Tools](docs/tools.md) — read-only tools, permission prompt, output bounds.
 - [Performance method](docs/perf.md) — benchmark method and raw numbers.
 - [Layout](docs/layout.md) — module map.
 - [Release](docs/release.md) — assets and runtime requirements.

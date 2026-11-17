@@ -69,6 +69,22 @@ fails, and failures stay out of the transcript (a partial reply is kept).
 `commands.c` implements `/model`, `/models`, `/system`, `/clear`,
 `/retry`, `/help`, and `/quit`, owns the command table behind the composer's
 slash menu, and shares `retry_last()` with the error window's retry row.
+`tool_accum.c` is the index-keyed streaming accumulator: whole calls replace a
+slot on `cc/*`, fragmented `arguments` append on passthrough routes, and a call
+with no index/id starts a new slot unless it is an argument-only continuation.
+
+## `src/tools/`
+
+User contract: [`tools.md`](tools.md).
+
+`tools.c` owns the static, byte-stable OpenAI tool array and dispatch;
+`exec.c` implements the three read-only handlers (`read_file` with a metadata
+header and line range, `search` with glob/context, `list_dir` with type/size).
+Every filesystem path goes through the `ToolAuthorizeFn` callback: cwd paths
+run, outside paths ask the TUI, and `--yolo` allows all. Results larger than
+16 KiB keep a head/tail inline and spill the full text under the cache
+directory. `chat.c` runs at most eight tool rounds and synthesizes an
+`[interrupted by user]` result for every unanswered id on cancel.
 
 ## `src/cli/`
 
