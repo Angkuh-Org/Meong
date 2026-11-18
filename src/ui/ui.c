@@ -328,10 +328,7 @@ static void draw_header(App *a, int rows, int cols) {
     } else {
         snprintf(right, sizeof right, "%s ready", sym_status(a));
     }
-    /* TODO(fix): right_w counts bytes, not display columns. A long-cwd
-     * truncation prefixes the 3-byte "…" (1 cell), so the reserve and the
-     * right edge shift left by two; track columns separately. */
-    int right_w = (int)strlen(right);
+    int right_w = utf8_cols(right);
 
     int x = sep_x + 3;
     int midmax = cols - x - 2;
@@ -349,7 +346,7 @@ static void draw_header(App *a, int rows, int cols) {
         right_w = 0;
     }
     const char *mid = a->model ? a->model : "";
-    int midn = (int)strlen(mid);
+    int midn = utf8_cols(mid);
     char midbuf[256];
     int fitn = header_mid(midbuf, sizeof midbuf, mid, midmax, a->unicode);
     if (fitn > 0) {
@@ -378,10 +375,23 @@ static void draw_header(App *a, int rows, int cols) {
         if (right_w > avail) {
             int keep = avail;
             if (keep > 1) {
-                snprintf(fit, sizeof fit, "%s%s", a->unicode ? "…" : "~",
-                         right + right_w - (keep - 1));
+                const char *ell = a->unicode ? "…" : "~";
+                size_t eb = a->unicode ? 3 : 1;
+                size_t ts = utf8_tail(right, keep - 1);
+                size_t sl = strlen(right + ts);
+                size_t room = sizeof fit - 1 - eb;
+                if (sl > room) {
+                    sl = room;
+                    while (sl > 0 &&
+                           ((unsigned char)right[ts + sl] & 0xC0) == 0x80) {
+                        sl--;
+                    }
+                }
+                memcpy(fit, ell, eb);
+                memcpy(fit + eb, right + ts, sl);
+                fit[eb + sl] = '\0';
                 show = fit;
-                right_w = keep;
+                right_w = utf8_cols(show);
             } else {
                 right_w = 0;
             }

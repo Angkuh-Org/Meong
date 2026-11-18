@@ -46,6 +46,9 @@ typedef struct {
 
 static int fails;
 static int tool_fast_frames;
+static int tool_id_frames;
+static int tool_name_frames;
+static int tool_multi_frames;
 
 static void slow_tools(const JDoc *d, int delta, ToolAccum *ta, int *failed) {
     int tcs = jget(d, delta, "tool_calls");
@@ -101,6 +104,7 @@ static void slow_parse(const char *text, size_t len, Slow *s, int whole) {
     tool_accum_reset(&s->tools, whole);
     JDoc d = {0};
     if (jdoc_parse(&d, text, len) != 0) {
+        jdoc_free(&d);
         return;
     }
     s->parsed = 1;
@@ -169,18 +173,44 @@ static void fast_parse(const char *text, size_t len, Fast *f, int whole) {
         f->has_reason = 1;
         json_unescape(fd.reason, fd.reason_len, &f->reason);
     }
-    if (fd.has_tool_index || fd.tool_args_len > 0) {
+    for (int i = 0; i < (int)fd.n_tools; i++) {
+        const JToolDelta *t = &fd.tools[i];
         tool_fast_frames++;
+        if (t->id_len > 0) {
+            tool_id_frames++;
+        }
+        if (t->name_len > 0) {
+            tool_name_frames++;
+        }
+        Buf id;
+        Buf name;
         Buf args;
+        buf_init(&id);
+        buf_init(&name);
         buf_init(&args);
-        if (fd.tool_args_len > 0) {
-            json_unescape(fd.tool_args, fd.tool_args_len, &args);
+        if (t->id_len > 0) {
+            json_unescape(t->id, t->id_len, &id);
         }
-        if (tool_accum_add(&f->tools, fd.has_tool_index, fd.tool_index,
-                           NULL, 0, NULL, 0, args.p, args.len) != 0) {
+        if (t->name_len > 0) {
+            json_unescape(t->name, t->name_len, &name);
+        }
+        if (t->args_len > 0) {
+            json_unescape(t->args, t->args_len, &args);
+        }
+        if (tool_accum_add(&f->tools, t->has_index, t->index, id.p, id.len,
+                           name.p, name.len, args.p, args.len) != 0) {
             f->tool_failed = 1;
+            buf_free(&id);
+            buf_free(&name);
+            buf_free(&args);
+            break;
         }
+        buf_free(&id);
+        buf_free(&name);
         buf_free(&args);
+    }
+    if (fd.n_tools > 1) {
+        tool_multi_frames++;
     }
     if (fd.has_ptok && fd.prompt_tokens >= 0) {
         f->has_ptok = 1;
@@ -496,14 +526,27 @@ static int fast_tools_frame(const char *text, ToolAccum *ta) {
     if (jdelta_scan(text, strlen(text), &fd) != 0) {
         return slow_tools_frame(text, ta);
     }
-    if (fd.has_tool_index || fd.tool_args_len > 0) {
+    for (int i = 0; i < (int)fd.n_tools; i++) {
+        const JToolDelta *t = &fd.tools[i];
+        Buf id;
+        Buf name;
         Buf args;
+        buf_init(&id);
+        buf_init(&name);
         buf_init(&args);
-        if (fd.tool_args_len > 0) {
-            json_unescape(fd.tool_args, fd.tool_args_len, &args);
+        if (t->id_len > 0) {
+            json_unescape(t->id, t->id_len, &id);
         }
-        int r = tool_accum_add(ta, fd.has_tool_index, fd.tool_index, NULL, 0,
-                               NULL, 0, args.p, args.len);
+        if (t->name_len > 0) {
+            json_unescape(t->name, t->name_len, &name);
+        }
+        if (t->args_len > 0) {
+            json_unescape(t->args, t->args_len, &args);
+        }
+        int r = tool_accum_add(ta, t->has_index, t->index, id.p, id.len,
+                               name.p, name.len, args.p, args.len);
+        buf_free(&id);
+        buf_free(&name);
         buf_free(&args);
         if (r != 0) {
             return -1;
@@ -641,7 +684,7 @@ int main(void) {
          "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,"
          "\"id\":\"call_1\",\"type\":\"function\",\"function\":{"
          "\"name\":\"read_file\",\"arguments\":\"\"}}]}}]}",
-         0},
+         1},
         {"tool-empty-id-name",
          "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,"
          "\"id\":\"\",\"function\":{\"name\":\"\",\"arguments\":\"x\"}}]}}]}",
@@ -650,7 +693,7 @@ int main(void) {
          "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,"
          "\"function\":{\"arguments\":\"a\"}},{\"index\":1,"
          "\"function\":{\"arguments\":\"b\"}}]}}]}",
-         0},
+         1},
         {"tool-escapes",
          "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,"
          "\"function\":{\"arguments\":\"a\\\"b\\\\c\\nd\\u00e9"
@@ -679,6 +722,22 @@ int main(void) {
         {"tool-index-big",
          "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":2000000,"
          "\"function\":{\"arguments\":\"{}\"}}]}}]}",
+         1},
+        {"tool-index-1000001",
+         "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":1000001,"
+         "\"function\":{\"arguments\":\"{}\"}}]}}]}",
+         1},
+        {"tool-index-intmax",
+         "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":2147483647,"
+         "\"function\":{\"arguments\":\"{}\"}}]}}]}",
+         1},
+        {"tool-index-intmax1",
+         "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":2147483648,"
+         "\"function\":{\"arguments\":\"{}\"}}]}}]}",
+         0},
+        {"tool-index-huge",
+         "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":"
+         "9223372036854775807,\"function\":{\"arguments\":\"{}\"}}]}}]}",
          0},
         {"tool-index-oob",
          "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":8,"
@@ -708,7 +767,7 @@ int main(void) {
         {"tool-name-nonempty",
          "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,"
          "\"function\":{\"name\":\"read_file\",\"arguments\":\"x\"}}]}}]}",
-         0},
+         1},
         {"tool-function-missing",
          "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0}]}}]}", 1},
         {"tool-function-null",
@@ -718,6 +777,48 @@ int main(void) {
         {"tool-id-nonempty",
          "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_1\","
          "\"function\":{\"arguments\":\"\"}}]}}]}",
+         1},
+        {"tool-name-only",
+         "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"name\":"
+         "\"read_file\",\"arguments\":\"\"}}]}}]}",
+         1},
+        {"tool-id-name-escapes",
+         "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":"
+         "\"call\\\"x\",\"function\":{\"name\":\"read\\u005ffile\","
+         "\"arguments\":\"{}\"}}]}}]}",
+         1},
+        {"tool-multi-named",
+         "{\"choices\":[{\"delta\":{\"tool_calls\":["
+         "{\"index\":1,\"id\":\"b\",\"function\":{\"name\":\"list_dir\","
+         "\"arguments\":\"{}\"}},"
+         "{\"index\":0,\"id\":\"a\",\"function\":{\"name\":\"read_file\","
+         "\"arguments\":\"x\"}}]}}]}",
+         1},
+        {"tool-multi-empty-first",
+         "{\"choices\":[{\"delta\":{\"tool_calls\":[{},{\"index\":0,"
+         "\"function\":{\"arguments\":\"x\"}}]}}]}",
+         1},
+        {"tool-multi-first-fails",
+         "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":8,"
+         "\"function\":{\"arguments\":\"a\"}},{\"index\":0,"
+         "\"function\":{\"arguments\":\"b\"}}]}}]}",
+         1},
+        {"tool-dup-id-name",
+         "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,"
+         "\"id\":\"first\",\"id\":\"second\",\"function\":{\"name\":"
+         "\"one\",\"name\":\"two\",\"arguments\":\"x\"}}]}}]}",
+         1},
+        {"tool-nine-items",
+         "{\"choices\":[{\"delta\":{\"tool_calls\":["
+         "{\"function\":{\"arguments\":\"a\"}},"
+         "{\"function\":{\"arguments\":\"b\"}},"
+         "{\"function\":{\"arguments\":\"c\"}},"
+         "{\"function\":{\"arguments\":\"d\"}},"
+         "{\"function\":{\"arguments\":\"e\"}},"
+         "{\"function\":{\"arguments\":\"f\"}},"
+         "{\"function\":{\"arguments\":\"g\"}},"
+         "{\"function\":{\"arguments\":\"h\"}},"
+         "{\"function\":{\"arguments\":\"i\"}}]}}]}",
          0},
     };
     for (unsigned i = 0; i < sizeof tool_frames / sizeof tool_frames[0];
@@ -733,7 +834,14 @@ int main(void) {
                      "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,"
                      "\"id\":\"call_1\",\"function\":{\"name\":\"read_file\","
                      "\"arguments\":\"{}\"}}]}}]}",
-                     0, 1);
+                     1, 1);
+    check_frame_mode("tool-whole-multi",
+                     "{\"choices\":[{\"delta\":{\"tool_calls\":["
+                     "{\"index\":0,\"id\":\"a\",\"function\":{\"name\":"
+                     "\"read_file\",\"arguments\":\"x\"}},"
+                     "{\"index\":1,\"id\":\"b\",\"function\":{\"name\":"
+                     "\"list_dir\",\"arguments\":\"y\"}}]}}]}",
+                     1, 1);
 
     static const char *seq_index[] = {
         "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,"
@@ -747,6 +855,20 @@ int main(void) {
     };
     check_sequence("seq-index", seq_index,
                    (int)(sizeof seq_index / sizeof seq_index[0]), 0);
+
+    static const char *seq_repeat[] = {
+        "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,"
+        "\"id\":\"call_1\",\"function\":{\"name\":\"read_file\","
+        "\"arguments\":\"\"}}]}}]}",
+        "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,"
+        "\"id\":\"call_1\",\"function\":{\"name\":\"read_file\","
+        "\"arguments\":\"{\\\"path\\\":\"}}]}}]}",
+        "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,"
+        "\"id\":\"call_1\",\"function\":{\"name\":\"read_file\","
+        "\"arguments\":\"\\\"/x\\\"}\"}}]}}]}",
+    };
+    check_sequence("seq-repeat", seq_repeat,
+                   (int)(sizeof seq_repeat / sizeof seq_repeat[0]), 0);
 
     static const char *seq_noindex[] = {
         "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_1\","
@@ -860,6 +982,12 @@ int main(void) {
     if (tool_fast_frames < 300) {
         printf("FAIL: only %d tool fragments reached the fast path\n",
                tool_fast_frames);
+        fails++;
+    }
+    if (tool_id_frames == 0 || tool_name_frames == 0 ||
+        tool_multi_frames == 0) {
+        printf("FAIL: fast-path coverage id=%d name=%d multi=%d\n",
+               tool_id_frames, tool_name_frames, tool_multi_frames);
         fails++;
     }
     printf(fails ? "FAILED: %d jdelta check(s)\n"

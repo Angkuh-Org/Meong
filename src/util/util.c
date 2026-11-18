@@ -222,6 +222,53 @@ int utf8_encode(wchar_t wc, char out[4]) {
     return 1;
 }
 
+int utf8_cols(const char *s) {
+    size_t n = strlen(s);
+    size_t i = 0;
+    int cols = 0;
+    while (i < n) {
+        unsigned char c = (unsigned char)s[i];
+        if (c < 0x80) {
+            cols++;
+            i++;
+            continue;
+        }
+        wchar_t wc;
+        int k = utf8_next(s + i, n - i, &wc);
+        if (k <= 0) {
+            break;
+        }
+        int w = wcwidth(wc);
+        cols += w < 0 ? 1 : w;
+        i += (size_t)k;
+    }
+    return cols;
+}
+
+size_t utf8_tail(const char *s, int cols) {
+    size_t n = strlen(s);
+    if (cols <= 0) {
+        return n;
+    }
+    int drop = utf8_cols(s) - cols;
+    if (drop <= 0) {
+        return 0;
+    }
+    size_t i = 0;
+    int dropped = 0;
+    while (i < n && dropped < drop) {
+        wchar_t wc;
+        int k = utf8_next(s + i, n - i, &wc);
+        if (k <= 0) {
+            break;
+        }
+        int w = wcwidth(wc);
+        dropped += w < 0 ? 1 : w;
+        i += (size_t)k;
+    }
+    return i;
+}
+
 char *wcs_to_utf8(const wchar_t *s, size_t n) {
     Buf b;
     buf_init(&b);
