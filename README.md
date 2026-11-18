@@ -12,7 +12,7 @@
   <a href="https://github.com/Angkuh-Org/Meong/actions/workflows/ci.yml?query=branch%3Amain"><img alt="ci" src="https://img.shields.io/github/actions/workflow/status/Angkuh-Org/Meong/ci.yml?branch=main&style=flat-square&label=ci"></a>
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/Angkuh-Org/Meong?style=flat-square&color=C5FC08"></a>
   <img alt="platform" src="https://img.shields.io/badge/platform-linux%20%C2%B7%20aarch64%20%2B%20x86__64-C5FC08?style=flat-square">
-  <img alt="binary size" src="https://img.shields.io/badge/binary-~130%20KB-C5FC08?style=flat-square">
+  <img alt="binary size" src="https://img.shields.io/badge/binary-~150%20KB-C5FC08?style=flat-square">
 </p>
 
 <p align="center">

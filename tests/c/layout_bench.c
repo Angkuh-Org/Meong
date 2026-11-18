@@ -35,7 +35,7 @@ static void bench_stream(int bytes, int chunk, int newlines) {
     a.layout_width = 100;
     a.gen_idx = msg_add(&a, ROLE_ASSISTANT, "");
     a.msgs[a.gen_idx].streaming = 1;
-    char buf[512];
+    char *buf = xmalloc((size_t)chunk);
     size_t off = 0;
     int done = 0;
     int steps = 0;
@@ -45,6 +45,7 @@ static void bench_stream(int bytes, int chunk, int newlines) {
         fill(buf, n, newlines, &off);
         if (msg_append(&a.msgs[a.gen_idx], buf, (size_t)n) != 0) {
             fprintf(stderr, "append failed at %d\n", done);
+            free(buf);
             exit(1);
         }
         a.layout_from = steps == 0 ? 0 : a.gen_idx;
@@ -57,7 +58,9 @@ static void bench_stream(int bytes, int chunk, int newlines) {
     printf("%s bytes=%d chunk=%d steps=%d rows=%d ms=%.3f us_per_step=%.2f\n",
            newlines ? "mixed" : "single", bytes, chunk, steps, a.nlines,
            (t1 - t0) * 1000.0, (t1 - t0) * 1e6 / steps);
+    free(buf);
     free(a.lines);
+    md_release(&a.msgs[0]);
     free(a.msgs[0].text);
     free(a.msgs);
 }
@@ -79,6 +82,7 @@ static void bench_full(int bytes, int newlines) {
            (t1 - t0) * 1000.0);
     free(text);
     free(a.lines);
+    md_release(&a.msgs[0]);
     free(a.msgs[0].text);
     free(a.msgs);
 }

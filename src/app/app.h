@@ -13,7 +13,7 @@
 
 #define APP_NAME "Meong"
 #ifndef APP_VERSION
-#define APP_VERSION "0.11.2"
+#define APP_VERSION "0.12.0"
 #endif
 #define DEFAULT_MODEL "cc/deepseek/deepseek-v4.1-flash"
 
@@ -45,12 +45,19 @@ enum {
     ERR_RETRY_MODELS,
 };
 
+/* ui/md.c owns the streaming markdown state hanging off Msg. */
+struct MdState;
+
 typedef struct {
     int role;
     char *text;
     size_t len;
     size_t cap;
     size_t chars;
+    char *disp;
+    size_t dlen;
+    size_t dcap;
+    struct MdState *md;
     char *reason;
     size_t rlen;
     size_t rcap;
@@ -61,6 +68,7 @@ typedef struct {
     int lay_row;
     int lay_cont;
     int lay_code;
+    unsigned char lay_style;
     int lay_valid;
     int lay_text_start;
     int lay_cursor;

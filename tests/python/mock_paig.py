@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 MODELS = [
     "mock/plain",
     "mock/split",
+    "mock/markdown",
     "mock/slow",
     "mock/huge",
     "mock/json200",
@@ -276,6 +277,27 @@ class Handler(BaseHTTPRequestHandler):
                         "stop",
                     )
                 ),
+                sse_frame(usage_obj(model)),
+                b"data: [DONE]\n\n",
+            ]
+            payload = b"".join(frames)
+        elif model == "mock/markdown":
+            chunks = [
+                "# Head",
+                "ing\n\nThis is **bo",
+                "ld**, *it",
+                "alic* and `co",
+                "de`.\n\n- one\n- t",
+                "wo\n\n1. first\n2. second\n- [ ] todo\n- [x] done\n",
+                "~~gone~~ text\n\n> quoted\n\n| name | age |\n|---",
+                "|---|\n| meong | 9 |\n\n```c\n",
+                "int x = 1;\n```\n\n[Docs](https://example.com)\n",
+            ]
+            frames = [
+                sse_frame(chunk_obj(model, {"content": text})) for text in chunks
+            ]
+            frames += [
+                sse_frame(chunk_obj(model, {}, "stop")),
                 sse_frame(usage_obj(model)),
                 b"data: [DONE]\n\n",
             ]

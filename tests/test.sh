@@ -83,11 +83,20 @@ ok "json: fast delta scanner matches jsmn"
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/msg_release_test" \
     tests/c/msg_release_test.c src/app/app.c src/chat/tool_accum.c \
-    src/util/util.c \
+    src/ui/md.c src/util/util.c \
     || fail "msg_release test did not compile"
 "$TMP/msg_release_test" >/dev/null \
     || fail "msg_release left stale state"
 ok "app: msg_release clears the message and is idempotent"
+
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
+    -o "$TMP/markdown_test" \
+    tests/c/markdown_test.c src/app/app.c src/chat/tool_accum.c \
+    src/ui/md.c src/util/util.c \
+    || fail "markdown test did not compile"
+"$TMP/markdown_test" >/dev/null \
+    || fail "markdown translation diverged"
+ok "markdown: streaming syntax becomes styled display text"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/tool_accum_test" \
@@ -627,6 +636,49 @@ print(len("".join(ch for ch, _ in rows[0]).rstrip()))
         || fail "streaming header ends at $width columns, want 109"
     ok "streaming header keeps its right edge at cols-2"
     tmux send-keys -t "$TMUX_SESS" C-c
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    TMUX_SESS="Meong-md-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 110 -y 60 -c "$PWD" \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config-md' XDG_CACHE_HOME='$TMP/cache-md' \
+         '$BIN_ABS' --url '$URL' --model mock/markdown --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'hi'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 120 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '7 tok'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null || true)
+    for needle in 'Head' 'This is bold, italic and code.' '• one' \
+        '1. first' '☐ todo' '☑ done' 'gone text' '│ quoted' \
+        '│ name │ age │' '│ meong │ 9 │' 'int x = 1;' 'Docs'; do
+        printf '%s\n' "$pane" | grep -Fq "$needle" \
+            || fail "markdown screen missing: $needle"
+    done
+    for banned in '**' '```' '|---' '~~' 'https://example.com' \
+        '# Heading'; do
+        if printf '%s\n' "$pane" | grep -Fq "$banned"; then
+            fail "markdown syntax leaked to the screen: $banned"
+        fi
+    done
+    ok "assistant markdown renders as styled text and boxes"
     tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
     TMUX_SESS=""
 

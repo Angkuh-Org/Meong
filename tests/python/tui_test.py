@@ -362,6 +362,24 @@ def main():
     plain_session("mock/tools-frag", "tool said:", "fragmented tool call",
                   "cache -", extra=["--yolo"])
 
+    s = Session(["--url", URL, "--model", "mock/markdown", "--no-mouse"])
+    try:
+        if not s.wait_for("ask anything"):
+            fail("markdown: chat screen never appeared", s)
+        s.send(b"hi\r")
+        if not s.wait_for("int x = 1;", 12):
+            fail("markdown: the reply never rendered", s)
+        if not s.wait_for("7 tok", 8):
+            fail("markdown: the reply never finished", s)
+        s.send(b"/quit\r")
+        if not s.wait_exit(6):
+            fail("markdown TUI did not exit", s)
+        if s.status != 0:
+            fail(f"markdown TUI exit status {s.status >> 8}", s)
+        print("ok - tui markdown stream completes")
+    finally:
+        s.close()
+
     s = Session(["--url", URL, "--model", "mock/tools", "--no-mouse"])
     try:
         if not s.wait_for("ask anything"):

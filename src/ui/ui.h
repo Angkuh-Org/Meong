@@ -174,8 +174,9 @@ void draw_splash(App *a, int y0, int h, int cols);
 void draw_chat(App *a, int rows, int cols);
 int chat_click(App *a, int y);
 void chat_toggle_fold(App *a);
-int draw_slice(int y, int x, const char *s, int off, int len, int maxx,
-               int pair, int attr, int *endx);
+int draw_slice(App *a, int y, int x, const char *s, int off, int len,
+               int maxx, int pair, int attr, unsigned mask, int md,
+               int *endx);
 void panel_frame(App *a, int px, int py, int w, int h,
                  const char *title, int shadow);
 
