@@ -72,19 +72,24 @@ slash menu, and shares `retry_last()` with the error window's retry row.
 `tool_accum.c` is the index-keyed streaming accumulator: whole calls replace a
 slot on `cc/*`, fragmented `arguments` append on passthrough routes, and a call
 with no index/id starts a new slot unless it is an argument-only continuation.
+`chat.c` also owns tool display identity: a `role:"tool"` message stores its
+parent assistant index and call position, a pending permission row is filled in
+place instead of appended twice, and cancellation fills unanswered rows rather
+than leaving an empty result in the wire history.
 
 ## `src/tools/`
 
 User contract: [`tools.md`](tools.md).
 
-`tools.c` owns the static, byte-stable OpenAI tool array and dispatch;
+`tools.c` owns the static, byte-stable OpenAI tool array and dispatch, plus
+`tool_call_summary()`, the display-only shortening of a call's arguments;
 `exec.c` implements the three read-only handlers (`read_file` with a metadata
 header and line range, `search` with glob/context, `list_dir` with type/size).
 Every filesystem path goes through the `ToolAuthorizeFn` callback: cwd paths
 run, outside paths ask the TUI, and `--yolo` allows all. Results larger than
 16 KiB keep a head/tail inline and spill the full text under the cache
-directory. `chat.c` runs at most eight tool rounds and synthesizes an
-`[interrupted by user]` result for every unanswered id on cancel.
+directory. `chat.c` runs at most eight tool rounds and fills an
+`[interrupted by user]` result into every unanswered call position on cancel.
 
 ## `src/cli/`
 
@@ -128,17 +133,20 @@ mouse), the header, status, input, and footer chrome, the splash and scrollbar,
 and the `ui_draw()` frame; the header draws the
 `nf-fa-cat` mark and records the `Meong` brand box so a click or tap pets the
 cat. `view.c` owns `RLine`, the wrapped row model behind the transcript:
-paragraph wrapping, code fences, reasoning lines, notes,
-`draw_slice()` for UTF-8 and wide cells, the click hit-test that expands or
-folds a reasoning block, and a per-message tail cursor so streaming re-wraps
-only the last row plus the new bytes. `pet.c` owns the pet card: the ASCII cat,
-reaction pools, mood and stats selection, and its responsive layout. `panel.c`
-draws the model picker, help overlay, and slash-command menu, and owns the
-shared `panel_frame()` primitive. `model.c` owns the model capability card:
-reported-only rows, the compact `not reported:` line, the models.dev estimate
-footer, and its responsive layout. `errorview.c` owns the request error window:
-the wrapped message, retry/close rows, keyboard selection, and button
-hit-testing. `input.c` is the composer: insert, delete, word kill, and history.
+paragraph wrapping, code fences, reasoning lines, notes, tool tree rows, the
+expanded-output box, `draw_slice()` for UTF-8 and wide cells, the click
+hit-test that expands or folds a reasoning block or tool result, and a
+per-message tail cursor so streaming re-wraps only the last row plus the new
+bytes. A tool row's rail state comes from `(tool_parent, tool_pos)`, so an
+incremental layout never leaves a stale `╰─` on the first of two calls.
+`pet.c` owns the pet card: the ASCII cat, reaction pools, mood and stats
+selection, and its responsive layout. `panel.c` draws the model picker, help
+overlay, and slash-command menu, and owns the shared `panel_frame()` primitive.
+`model.c` owns the model capability card: reported-only rows, the compact
+`not reported:` line, the models.dev estimate footer, and its responsive
+layout. `errorview.c` owns the request error window: the wrapped message,
+retry/close rows, keyboard selection, and button hit-testing. `input.c` is the
+composer: insert, delete, word kill, and history.
 
 ## `src/util/`
 
@@ -156,4 +164,5 @@ delta scanner, layout truncation, streaming cursor) and the layout benchmark.
 `tests/test.sh` builds the client, proves the rulebook rejects a 2001-line file,
 runs `tests/python/mock_paig.py` for the wire paths, runs
 `tests/python/tui_test.py` as the pty test, and then makes its own tmux
-`capture-pane` screen assertions for the TUI.
+`capture-pane` screen assertions for the TUI, including the tool tree, the
+expanded output box, and the permission row.

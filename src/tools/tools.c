@@ -5,6 +5,7 @@
  */
 #include "tools/tools.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -136,4 +137,156 @@ void tool_call_free(ToolCall *c) {
     c->args = NULL;
     c->args_len = 0;
     c->args_cap = 0;
+}
+
+static void short_path(const char *path, const char *cwd, char *out,
+                       size_t cap) {
+    if (!path) {
+        out[0] = '\0';
+        return;
+    }
+    size_t cl = cwd ? strlen(cwd) : 0;
+    if (cl > 1 && strncmp(path, cwd, cl) == 0) {
+        if (path[cl] == '/') {
+            snprintf(out, cap, "%s", path + cl + 1);
+            return;
+        }
+        if (path[cl] == '\0') {
+            snprintf(out, cap, ".");
+            return;
+        }
+    }
+    const char *home = getenv("HOME");
+    size_t hl = home ? strlen(home) : 0;
+    if (hl > 1 && strncmp(path, home, hl) == 0 && path[hl] == '/') {
+        snprintf(out, cap, "~%s", path + hl);
+        return;
+    }
+    snprintf(out, cap, "%s", path);
+}
+
+static char *arg_str(const JDoc *d, int root, const char *key) {
+    int t = jget(d, root, key);
+    if (t < 0 || jtype(d, t) != J_STRING) {
+        return NULL;
+    }
+    return jstring_alloc(d, t);
+}
+
+static int arg_num(const JDoc *d, int root, const char *key, long long *out) {
+    int t = jget(d, root, key);
+    if (t < 0 || jtype(d, t) != J_PRIMITIVE) {
+        return 0;
+    }
+    long long v = jint(d, t, LLONG_MIN);
+    if (v == LLONG_MIN) {
+        return 0;
+    }
+    *out = v;
+    return 1;
+}
+
+static void compact_args(const char *args, size_t len, char *out,
+                         size_t cap) {
+    size_t o = 0;
+    int pending_space = 0;
+    int truncated = 0;
+    for (size_t i = 0; i < len; i++) {
+        unsigned char ch = (unsigned char)args[i];
+        if (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r') {
+            pending_space = o > 0;
+            continue;
+        }
+        if (o + 4 >= cap) {
+            truncated = 1;
+            break;
+        }
+        if (pending_space) {
+            out[o++] = ' ';
+            pending_space = 0;
+        }
+        out[o++] = (char)ch;
+    }
+    if (truncated) {
+        out[o++] = '.';
+        out[o++] = '.';
+        out[o++] = '.';
+    }
+    out[o] = '\0';
+}
+
+void tool_call_summary(const char *name, const char *args, size_t args_len,
+                       const char *cwd, char *out, size_t cap) {
+    if (!out || cap == 0) {
+        return;
+    }
+    out[0] = '\0';
+    const char *nm = name && *name ? name : "unknown";
+    JDoc d = {0};
+    int parsed = args && args_len && jdoc_parse(&d, args, args_len) == 0;
+    int root = parsed ? jdoc_root(&d) : -1;
+    if (parsed && (root < 0 || jtype(&d, root) != J_OBJECT)) {
+        parsed = 0;
+    }
+    if (parsed && strcmp(nm, "read_file") == 0) {
+        char *path = arg_str(&d, root, "path");
+        if (path) {
+            char sp[512];
+            short_path(path, cwd, sp, sizeof sp);
+            long long start = 0;
+            long long end = 0;
+            int has_start = arg_num(&d, root, "start_line", &start);
+            int has_end = arg_num(&d, root, "end_line", &end);
+            if (has_start || has_end) {
+                long long s = has_start && start > 0 ? start : 1;
+                if (has_end && end > 0) {
+                    snprintf(out, cap, "%s:%lld-%lld", sp, s, end);
+                } else {
+                    snprintf(out, cap, "%s:%lld-", sp, s);
+                }
+            } else {
+                snprintf(out, cap, "%s", sp);
+            }
+            free(path);
+            jdoc_free(&d);
+            return;
+        }
+    } else if (parsed && strcmp(nm, "search") == 0) {
+        char *pattern = arg_str(&d, root, "pattern");
+        char *path = arg_str(&d, root, "path");
+        char *glob = arg_str(&d, root, "glob");
+        char sp[512];
+        sp[0] = '\0';
+        if (path) {
+            short_path(path, cwd, sp, sizeof sp);
+        }
+        if (pattern && sp[0]) {
+            snprintf(out, cap, "\"%s\"  %s", pattern, sp);
+        } else if (sp[0]) {
+            snprintf(out, cap, "%s", sp);
+        } else if (pattern) {
+            snprintf(out, cap, "\"%s\"", pattern);
+        } else {
+            compact_args(args, args_len, out, cap);
+        }
+        if (glob) {
+            size_t n = strlen(out);
+            snprintf(out + n, cap - n, "  %s", glob);
+        }
+        free(pattern);
+        free(path);
+        free(glob);
+        jdoc_free(&d);
+        return;
+    } else if (parsed && strcmp(nm, "list_dir") == 0) {
+        char *path = arg_str(&d, root, "path");
+        if (path) {
+            short_path(path, cwd, out, cap);
+            free(path);
+            jdoc_free(&d);
+            return;
+        }
+    }
+    compact_args(args, args_len, out, cap);
+    jdoc_free(&d);
 }

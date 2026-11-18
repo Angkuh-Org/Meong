@@ -979,9 +979,15 @@ PY
     done
     sleep 0.2
 
-    tmux capture-pane -p -t "$TMUX_SESS" |
-        grep -Fq '○ thinking ▸' \
+    head_line=$(tmux capture-pane -p -t "$TMUX_SESS" |
+        grep -F '○ thinking ▸' | head -1)
+    [ -n "$head_line" ] \
         || fail "thinking block did not fold after the reply finished"
+    if printf '%s\n' "$head_line" | grep -Fq 'tok |'; then
+        fail "stats stayed on the folded thinking head"
+    fi
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'tok |' \
+        || fail "reply lost its bottom stats"
     tmux send-keys -t "$TMUX_SESS" C-o
     i=0
     while [ "$i" -lt 100 ]; do
@@ -995,7 +1001,13 @@ PY
     pane=$(tmux capture-pane -p -t "$TMUX_SESS")
     printf '%s\n' "$pane" | grep -Fq '○ thinking ▾' \
         || fail "ctrl-o did not expand the thinking block"
-    printf '%s\n' "$pane" | grep -Fq '┆ thinking a little' \
+    head_line=$(printf '%s\n' "$pane" | grep -F '○ thinking ▾' | head -1)
+    if printf '%s\n' "$head_line" | grep -Fq 'tok |'; then
+        fail "stats stayed on the expanded thinking head"
+    fi
+    printf '%s\n' "$pane" | grep -Fq 'tok |' \
+        || fail "expanded reply lost its bottom stats"
+    printf '%s\n' "$pane" | grep -Fq '╰─ thinking a little' \
         || fail "reasoning gutter disappeared after expanding"
 
     reason_row=$(printf '%s\n' "$pane" | grep -n 'thinking a little' |
@@ -1073,6 +1085,346 @@ PY
     [ -n "$before" ] && [ "$before" != "$after" ] \
         || fail "mouse wheel did not scroll the picker"
     ok "mouse wheel still scrolls the picker"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    mkdir -p "$TMP/toolfix/sub"
+    printf 'alpha\nbeta\ngamma\n' >"$TMP/toolfix/notes.md"
+    TMUX_SESS="Meong-tools-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 110 -y 44 -c "$TMP/toolfix" \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/tools-multi"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'go'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'tool said:'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -t "$TMUX_SESS" C-t
+    sleep 0.2
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq '├─ ✓ read_file  notes.md:1-3' \
+        || fail "first tool call lost its tree rail"
+    printf '%s\n' "$pane" | grep -Fq '╰─ ✓ list_dir  .' \
+        || fail "last tool call lost its terminal rail"
+    printf '%s\n' "$pane" | grep -Fq '▸' \
+        || fail "collapsed tool call lost its fold marker"
+    if printf '%s\n' "$pane" | grep -Fq '[file: notes.md'; then
+        fail "tool result is expanded by default"
+    fi
+
+    row=$(printf '%s\n' "$pane" | grep -n 'read_file  notes.md' |
+        head -1 | cut -d: -f1)
+    [ -n "$row" ] || fail "tool row is missing"
+    click_at "$row"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '[file: notes.md'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq '[file: notes.md' \
+        || fail "clicking a tool row did not open its box"
+    printf '%s\n' "$pane" | grep -Fq '▾' \
+        || fail "expanded tool call lost its open marker"
+    row=$(printf '%s\n' "$pane" | grep -n 'read_file  notes.md' |
+        head -1 | cut -d: -f1)
+    click_at "$row"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if ! tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '[file: notes.md'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    if tmux capture-pane -p -t "$TMUX_SESS" |
+        grep -Fq '[file: notes.md'; then
+        fail "clicking the open tool row did not fold the box"
+    fi
+    tmux send-keys -t "$TMUX_SESS" C-o
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '│ f notes.md'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq '│ f notes.md' \
+        || fail "ctrl-o did not expand the last tool call"
+    tmux send-keys -t "$TMUX_SESS" C-o
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if ! tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '│ f notes.md'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    if tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq '│ f notes.md'; then
+        fail "ctrl-o did not fold the last tool call"
+    fi
+    ok "tool calls render as a tree and expand into a box"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    TMUX_SESS="Meong-tools-ascii-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 40 -y 20 -c "$TMP/toolfix" \
+        "env TERM=xterm-256color LC_ALL=C LANG=C \
+         MEONG_ASCII=1 NO_COLOR=1 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/tools-multi"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'go'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'tool said:'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -t "$TMUX_SESS" C-t
+    sleep 0.1
+    tmux send-keys -t "$TMUX_SESS" C-o
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '| f notes.md'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    sleep 0.2
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    row=$(printf '%s\n' "$pane" | grep -n '| f notes.md' |
+        head -1 | cut -d: -f1)
+    top=$(printf '%s\n' "$pane" |
+        grep -nE '^(     |  \|  )\+-{5,}\+$' | head -1 | cut -d: -f1)
+    bot=$(printf '%s\n' "$pane" |
+        grep -nE '^(     |  \|  )\+-{5,}\+$' | tail -1 | cut -d: -f1)
+    [ -n "$row" ] || fail "ascii tool box lost its body row"
+    [ -n "$top" ] && [ -n "$bot" ] && [ "$top" -lt "$row" ] &&
+        [ "$row" -lt "$bot" ] \
+        || fail "ascii tool box lost a horizontal rule"
+    if printf '%s\n' "$pane" | grep -Fq '┌'; then
+        fail "ascii tool box used a unicode corner"
+    fi
+    ok "narrow ascii tool box draws one-cell rules"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    TMUX_SESS="Meong-tools-think-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 110 -y 44 -c "$TMP/toolfix" \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/tools-think"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'hello'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'done with tools'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    sleep 0.2
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq '○ thinking ▾' \
+        || fail "thinking-plus-tools: reasoning did not stay open"
+    printf '%s\n' "$pane" | grep -Fq '╰─ thinking a little with tools' \
+        || fail "thinking-plus-tools: reasoning text is missing"
+    printf '%s\n' "$pane" | grep -Fq '╰─ ✓ read_file  notes.md:1-3' \
+        || fail "thinking-plus-tools: tool row is missing"
+    head_row=$(printf '%s\n' "$pane" | grep -n '○ thinking' |
+        head -1 | cut -d: -f1)
+    [ -n "$head_row" ] || fail "thinking-plus-tools: head row is missing"
+    click_at "$head_row"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '○ thinking ▸'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    head_line=$(printf '%s\n' "$pane" | grep -F '○ thinking ▸' | head -1)
+    if printf '%s\n' "$head_line" | grep -Fq 'tok |'; then
+        fail "thinking-plus-tools: intermediate thinking kept its stats"
+    fi
+    printf '%s\n' "$pane" | grep -Fq '14 tok |' \
+        || fail "thinking-plus-tools: final stats are not accumulated"
+    if printf '%s\n' "$pane" | grep -Fq '7 tok |'; then
+        fail "thinking-plus-tools: per-response stats survived"
+    fi
+    head_row=$(printf '%s\n' "$pane" | grep -n '○ thinking ▸' |
+        head -1 | cut -d: -f1)
+    next_line=$(printf '%s\n' "$pane" | sed -n "$((head_row + 1))p")
+    printf '%s\n' "$next_line" | grep -Fq '╰─ ✓ read_file  notes.md:1-3' \
+        || fail "thinking-plus-tools: blank row before the tool group"
+    ok "folded thinking attaches tool rows without a blank line"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    TMUX_SESS="Meong-tools-stream-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 100 -y 30 -c "$TMP/toolfix" \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/tools-think-slow"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'hello'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '○ thinking ▾'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq '○ thinking ▾' \
+        || fail "slow stream: thinking did not open"
+    printf '%s\n' "$pane" | grep -Fq '╰─ thinking' \
+        || fail "slow stream: reasoning close is missing"
+    if printf '%s\n' "$pane" | grep -Fq '✦'; then
+        fail "slow stream: empty assistant placeholder survived"
+    fi
+    ok "streaming thinking has no empty placeholder row"
+
+    i=0
+    while [ "$i" -lt 140 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '14 tok |'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    sleep 0.2
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq 'done with tools' \
+        || fail "slow stream: final answer is missing"
+    marker_row=$(printf '%s\n' "$pane" | grep -n '✦   1 tool call' |
+        head -1 | cut -d: -f1)
+    [ -n "$marker_row" ] || fail "slow stream: tool-call marker is missing"
+    next_line=$(printf '%s\n' "$pane" | sed -n "$((marker_row + 1))p")
+    printf '%s\n' "$next_line" | grep -Fq '╰─ ✓ read_file  notes.md:1-3' \
+        || fail "slow stream: blank row before the tool group"
+    printf '%s\n' "$pane" | grep -Fq '14 tok |' \
+        || fail "slow stream: final stats are not accumulated"
+    ok "slow stream attaches tool rows without a gap"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    TMUX_SESS="Meong-tools-perm-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 90 -y 26 -c "$PWD" \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/tools --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'go'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'awaiting y/n'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq '? read_file  /proj/version.txt' \
+        || fail "permission row lost its ask glyph"
+    printf '%s\n' "$pane" | grep -Fq 'permission: y allow / n deny' \
+        || fail "permission prompt left the composer"
+    tmux send-keys -t "$TMUX_SESS" n
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'permission denied'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq '✗ read_file  /proj/version.txt' \
+        || fail "denied permission did not turn the row into an error"
+    if printf '%s\n' "$pane" | grep -Fq 'awaiting y/n'; then
+        fail "permission row survived the answer"
+    fi
+    ok "out-of-cwd tool waits for y/n and fills the same row"
     tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
     TMUX_SESS=""
 
@@ -1164,7 +1516,7 @@ PY
     pane=$(tmux capture-pane -p -t "$TMUX_SESS")
     printf '%s\n' "$pane" | grep -Fq '○ thinking ▾' \
         || fail "reasoning-only reply folded its only content"
-    printf '%s\n' "$pane" | grep -Fq '┆ thinking a little' \
+    printf '%s\n' "$pane" | grep -Fq '╰─ thinking a little' \
         || fail "reasoning-only reply lost its reasoning text"
     printf '%s\n' "$pane" | grep -Fq 'with no answer' \
         || fail "reasoning-only reply lost its second chunk"

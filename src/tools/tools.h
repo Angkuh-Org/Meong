@@ -52,4 +52,12 @@ int tool_bound_result(const char *call_id, const char *text, size_t len,
 
 void tool_call_free(ToolCall *call);
 
+/*
+ * Compact, human-facing argument summary for one call, e.g.
+ * "src/ui/view.c:170-190" or "\"ROLE_TOOL\"  src/".  The caller prepends the
+ * tool name.  This is display-only; the wire keeps the raw JSON arguments.
+ */
+void tool_call_summary(const char *name, const char *args, size_t args_len,
+                       const char *cwd, char *out, size_t cap);
+
 #endif

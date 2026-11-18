@@ -19,6 +19,7 @@
 #define C_ACCENT 154
 #define C_MUTED 243
 #define C_SHADOW 234
+#define C_ERR 203
 
 /* one quadrant filled clockwise; wall-clock phase, and the modulo below is
  * the table length, so adding a frame cannot read past the array */
@@ -67,6 +68,7 @@ static void init_pairs(void) {
         init_pair(P_CHIP_BOB, C_ACCENT, C_SURFACE);
         init_pair(P_CHIP_MISTRAL, C_ACCENT, C_SURFACE);
         init_pair(P_CHIP_OTHER, C_ACCENT, C_SURFACE);
+        init_pair(P_ERR, C_ERR, C_BASE);
     } else {
         init_pair(P_BASE, COLOR_WHITE, -1);
         init_pair(P_USER, COLOR_GREEN, -1);
@@ -96,6 +98,7 @@ static void init_pairs(void) {
         init_pair(P_CHIP_BOB, COLOR_BLACK, COLOR_GREEN);
         init_pair(P_CHIP_MISTRAL, COLOR_BLACK, COLOR_GREEN);
         init_pair(P_CHIP_OTHER, COLOR_BLACK, COLOR_GREEN);
+        init_pair(P_ERR, COLOR_RED, -1);
     }
 }
 

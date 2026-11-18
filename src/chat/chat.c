@@ -381,8 +381,15 @@ int start_generation(App *a) {
     a->stream_failed = 0;
     int idx = msg_add(a, ROLE_ASSISTANT, "");
     a->gen_idx = idx;
-    /* Rebuild from the last user turn; /retry's stale rows sit above it. */
-    a->layout_from = idx > 0 ? idx - 1 : 0;
+    /* Rebuild from the last user turn; a tool round's idx-1 is a tool row. */
+    int from = 0;
+    for (int i = idx - 1; i >= 0; i--) {
+        if (a->msgs[i].role == ROLE_USER) {
+            from = i;
+            break;
+        }
+    }
+    a->layout_from = from;
     Stream *s = NULL;
     if (stream_start(&s, &a->ep, "POST", "/v1/chat/completions", body.p,
                      body.len, 1, on_stream_event, a, 240000, err,
@@ -466,28 +473,86 @@ static int tool_authorize(void *ud, const char *path) {
     return path_within_cwd(a, path) ? 1 : -1;
 }
 
-static int has_tool_result(App *a, int msg_idx, const char *id) {
-    if (!id) {
+static long count_text_lines(const char *s, size_t n) {
+    if (!s || n == 0) {
         return 0;
     }
-    for (int i = msg_idx + 1; i < a->nmsg; i++) {
-        Msg *m = &a->msgs[i];
-        if (m->role == ROLE_TOOL && m->call_id &&
-            strcmp(m->call_id, id) == 0) {
-            return 1;
+    long lines = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (s[i] == '\n') {
+            lines++;
         }
     }
-    return 0;
+    if (s[n - 1] != '\n') {
+        lines++;
+    }
+    return lines;
 }
 
-static int append_tool_result(App *a, const ToolCall *call, const char *text,
-                              int is_error) {
+static char *make_tool_label(const App *a, const ToolCall *call) {
+    char summary[256];
+    tool_call_summary(call->name, call->args, call->args_len, a->cwd, summary,
+                      sizeof summary);
+    const char *nm = call->name && *call->name ? call->name : "unknown";
+    size_t n = strlen(nm) + 2 + strlen(summary) + 1;
+    char *label = xmalloc(n);
+    if (summary[0]) {
+        snprintf(label, n, "%s  %s", nm, summary);
+    } else {
+        snprintf(label, n, "%s", nm);
+    }
+    return label;
+}
+
+/*
+ * A tool result is identified by its position in the assistant call, not by
+ * call_id: streamed routes may omit the id, and two empty ids would collide.
+ */
+static int find_tool_result(App *a, int parent, int pos) {
+    for (int i = parent + 1; i < a->nmsg; i++) {
+        Msg *m = &a->msgs[i];
+        if (m->role == ROLE_TOOL && m->tool_parent == parent &&
+            m->tool_pos == pos) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int append_tool_result(App *a, int parent, int pos,
+                              const ToolCall *call, int state,
+                              const char *text, double sec, size_t bytes,
+                              long lines) {
     int idx = msg_add(a, ROLE_TOOL, text ? text : "");
     Msg *m = &a->msgs[idx];
     m->call_id = xstrdup(call->id ? call->id : "");
     m->tool_name = xstrdup(call->name ? call->name : "");
-    m->tool_error = is_error;
+    m->tool_label = make_tool_label(a, call);
+    m->tool_parent = parent;
+    m->tool_pos = pos;
+    m->tool_state = state;
+    m->tool_sec = sec;
+    m->tool_bytes = bytes;
+    m->tool_lines = lines;
     return idx;
+}
+
+static void fill_tool_result(App *a, int idx, int state, const char *text,
+                             double sec, size_t bytes, long lines) {
+    if (idx < 0 || idx >= a->nmsg) {
+        return;
+    }
+    Msg *m = &a->msgs[idx];
+    msg_set(m, text ? text : "");
+    m->tool_state = state;
+    m->tool_sec = sec;
+    m->tool_bytes = bytes;
+    m->tool_lines = lines;
+    if (a->layout_from == 0 || a->layout_from > idx) {
+        a->layout_from = idx;
+    }
+    a->layout_dirty = 1;
+    a->dirty = 1;
 }
 
 static void settle_tool_calls(App *a, int msg_idx) {
@@ -496,56 +561,70 @@ static void settle_tool_calls(App *a, int msg_idx) {
     }
     int n = a->msgs[msg_idx].ncalls;
     for (int i = 0; i < n; i++) {
-        ToolCall *call = &a->msgs[msg_idx].calls[i];
-        if (!has_tool_result(a, msg_idx, call->id)) {
-            append_tool_result(a, call, "[interrupted by user]", 1);
+        int idx = find_tool_result(a, msg_idx, i);
+        if (idx >= 0 && a->msgs[idx].tool_state != TOOL_VIEW_ASK) {
+            continue;
+        }
+        if (idx >= 0) {
+            fill_tool_result(a, idx, TOOL_VIEW_ERR, "[interrupted by user]",
+                             0, 0, 0);
+        } else {
+            ToolCall *call = &a->msgs[msg_idx].calls[i];
+            append_tool_result(a, msg_idx, i, call, TOOL_VIEW_ERR,
+                               "[interrupted by user]", 0, 0, 0);
         }
     }
 }
 
 /* TODO(mem): cold-path frame is ~6.8 KiB (spill[PATH_MAX] + err/ask + berr).
  * Move spill to the heap only if the main-thread stack budget matters. */
-static int execute_tool_call(App *a, const ToolCall *call, int *paused) {
+static int run_tool(App *a, const ToolCall *call, Buf *bounded, char *err,
+                    size_t err_cap, double *sec, size_t *bytes,
+                    long *lines) {
+    double t0 = now_sec();
     Buf out;
     buf_init(&out);
-    char err[1024];
+    buf_init(bounded);
     char ask[1024];
-    err[0] = '\0';
     ask[0] = '\0';
+    if (err && err_cap) {
+        err[0] = '\0';
+    }
+    *bytes = 0;
+    *lines = 0;
     int r = tool_execute(call->name, call->args, call->args_len, a,
                          tool_authorize, ask, sizeof ask, &out, err,
-                         sizeof err);
+                         err_cap);
+    *sec = now_sec() - t0;
     if (r == TOOL_NEED_PERM) {
-        *paused = 1;
         snprintf(a->perm_path, sizeof a->perm_path, "%s", ask);
         buf_free(&out);
-        return 0;
+        return r;
     }
     if (r == TOOL_ERR) {
-        append_tool_result(a, call, err[0] ? err : "ERROR: tool failed", 1);
         buf_free(&out);
-        return 0;
+        return r;
     }
+    *bytes = out.len;
+    *lines = count_text_lines(out.p, out.len);
     char *dir = cache_dir();
     char spill[PATH_MAX];
     snprintf(spill, sizeof spill, "%s/tool-output",
              dir ? dir : "/tmp/meong-cache");
     free(dir);
-    Buf bounded;
-    buf_init(&bounded);
     char berr[512];
     berr[0] = '\0';
     if (tool_bound_result(call->id ? call->id : "call", out.p ? out.p : "",
-                          out.len, spill, &bounded, berr,
+                          out.len, spill, bounded, berr,
                           sizeof berr) != 0) {
-        append_tool_result(a, call,
-                           berr[0] ? berr : "ERROR: result too large", 1);
-    } else {
-        append_tool_result(a, call, bounded.p ? bounded.p : "", 0);
+        if (err && err_cap) {
+            snprintf(err, err_cap, "%s",
+                     berr[0] ? berr : "ERROR: result too large");
+        }
+        r = TOOL_ERR;
     }
-    buf_free(&bounded);
     buf_free(&out);
-    return 0;
+    return r;
 }
 
 static int run_tool_calls(App *a, int msg_idx) {
@@ -555,26 +634,34 @@ static int run_tool_calls(App *a, int msg_idx) {
     int n = a->msgs[msg_idx].ncalls;
     for (int pos = a->tool_call_pos; pos < n; pos++) {
         ToolCall call = a->msgs[msg_idx].calls[pos];
-        char note[512];
-        snprintf(note, sizeof note, "-> %s %.*s",
-                 call.name ? call.name : "unknown", 300,
-                 call.args ? call.args : "");
-        msg_add(a, ROLE_NOTE, note);
-        int paused = 0;
-        execute_tool_call(a, &call, &paused);
-        if (paused) {
+        Buf bounded;
+        char err[1024];
+        double sec = 0;
+        size_t bytes = 0;
+        long lines = 0;
+        int r = run_tool(a, &call, &bounded, err, sizeof err, &sec, &bytes,
+                         &lines);
+        if (r == TOOL_NEED_PERM) {
+            append_tool_result(a, msg_idx, pos, &call, TOOL_VIEW_ASK, "", 0,
+                               0, 0);
             a->tool_pending = 1;
             a->tool_msg_idx = msg_idx;
             a->tool_call_pos = pos;
-            char pnote[1400];
-            snprintf(pnote, sizeof pnote,
-                     "permission required: %s\npress y to allow, n to deny",
-                     a->perm_path);
-            msg_add(a, ROLE_NOTE, pnote);
+            buf_free(&bounded);
             a->layout_dirty = 1;
             a->dirty = 1;
             return 0;
         }
+        if (r == TOOL_ERR) {
+            append_tool_result(a, msg_idx, pos, &call, TOOL_VIEW_ERR,
+                               err[0] ? err : "ERROR: tool failed", sec,
+                               bytes, lines);
+        } else {
+            append_tool_result(a, msg_idx, pos, &call, TOOL_VIEW_OK,
+                               bounded.p ? bounded.p : "", sec, bytes,
+                               lines);
+        }
+        buf_free(&bounded);
         a->tool_call_pos = pos + 1;
     }
     a->tool_call_pos = 0;
@@ -603,20 +690,42 @@ int resume_tool_calls(App *a, int allow) {
         return 0;
     }
     ToolCall call = a->msgs[msg_idx].calls[pos];
+    int idx = find_tool_result(a, msg_idx, pos);
+    if (idx < 0) {
+        idx = append_tool_result(a, msg_idx, pos, &call, TOOL_VIEW_ASK, "", 0,
+                                 0, 0);
+    }
     if (!allow) {
-        append_tool_result(a, &call, "ERROR: permission denied", 1);
+        fill_tool_result(a, idx, TOOL_VIEW_ERR, "ERROR: permission denied",
+                         0, 0, 0);
         a->tool_call_pos = pos + 1;
     } else {
         a->tool_allow_all = 1;
-        int paused = 0;
-        execute_tool_call(a, &call, &paused);
+        Buf bounded;
+        char err[1024];
+        double sec = 0;
+        size_t bytes = 0;
+        long lines = 0;
+        int r = run_tool(a, &call, &bounded, err, sizeof err, &sec, &bytes,
+                         &lines);
         a->tool_allow_all = 0;
-        if (paused) {
+        if (r == TOOL_NEED_PERM) {
+            fill_tool_result(a, idx, TOOL_VIEW_ASK, "", 0, 0, 0);
             a->tool_pending = 1;
             a->tool_msg_idx = msg_idx;
             a->tool_call_pos = pos;
+            buf_free(&bounded);
             return 0;
         }
+        if (r == TOOL_ERR) {
+            fill_tool_result(a, idx, TOOL_VIEW_ERR,
+                             err[0] ? err : "ERROR: tool failed", sec, bytes,
+                             lines);
+        } else {
+            fill_tool_result(a, idx, TOOL_VIEW_OK,
+                             bounded.p ? bounded.p : "", sec, bytes, lines);
+        }
+        buf_free(&bounded);
         a->tool_call_pos = pos + 1;
     }
     return run_tool_calls(a, msg_idx);

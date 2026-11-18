@@ -13,7 +13,7 @@
 
 #define APP_NAME "Meong"
 #ifndef APP_VERSION
-#define APP_VERSION "0.10.0"
+#define APP_VERSION "0.11.0"
 #endif
 #define DEFAULT_MODEL "cc/deepseek/deepseek-v4.1-flash"
 
@@ -30,6 +30,13 @@ enum {
     ROLE_ASSISTANT,
     ROLE_NOTE,
     ROLE_TOOL,
+};
+
+/* Display state of a ROLE_TOOL row; the wire only ever sees its text. */
+enum {
+    TOOL_VIEW_OK,
+    TOOL_VIEW_ERR,
+    TOOL_VIEW_ASK,
 };
 
 /* The retry button replays whichever request produced the error. */
@@ -71,7 +78,14 @@ typedef struct {
     size_t args_bytes;
     char *call_id;
     char *tool_name;
-    int tool_error;
+    char *tool_label; /* name + flat argument summary; never sent */
+    int tool_parent;  /* assistant message that owns this call */
+    int tool_pos;     /* position in that message's calls[] */
+    int tool_state;
+    int tool_open;
+    double tool_sec;
+    long tool_lines;
+    size_t tool_bytes;
 } Msg;
 
 /* ui/view.c owns the layout row definition. */

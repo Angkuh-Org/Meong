@@ -39,6 +39,7 @@ enum {
     P_CHIP_BOB,
     P_CHIP_MISTRAL,
     P_CHIP_OTHER,
+    P_ERR,
 };
 
 static inline attr_t pair_attr(const App *a, int pair) {
@@ -83,7 +84,11 @@ static inline const char *sym_gutter(const App *a) {
 }
 
 static inline const char *sym_reason_gutter(const App *a) {
-    return a->unicode ? "┆" : ":";
+    return a->unicode ? "│" : "|";
+}
+
+static inline const char *sym_reason_close(const App *a) {
+    return a->unicode ? "╰─" : "`-";
 }
 
 static inline const char *sym_cursor(const App *a) {
@@ -102,6 +107,58 @@ static inline const char *sym_arrow_up(const App *a) {
     return a->unicode ? "↑" : "^";
 }
 
+static inline const char *sym_tool_ok(const App *a) {
+    return a->unicode ? "✓" : "+";
+}
+
+static inline const char *sym_tool_err(const App *a) {
+    return a->unicode ? "✗" : "x";
+}
+
+static inline const char *sym_tool_ask(const App *a) {
+    return "?";
+}
+
+static inline const char *sym_tree_mid(const App *a) {
+    return a->unicode ? "├" : "|";
+}
+
+static inline const char *sym_tree_last(const App *a) {
+    return a->unicode ? "╰" : "`";
+}
+
+static inline const char *sym_tree_bar(const App *a) {
+    return a->unicode ? "│" : "|";
+}
+
+static inline const char *sym_tree_h(const App *a) {
+    return a->unicode ? "─" : "-";
+}
+
+static inline const char *sym_box_v(const App *a) {
+    return a->unicode ? "│" : "|";
+}
+
+static inline const char *sym_box_h(const App *a) {
+    return a->unicode ? "─" : "-";
+}
+
+static inline const char *sym_box_tl(const App *a) {
+    return a->unicode ? "┌" : "+";
+}
+
+static inline const char *sym_box_tr(const App *a) {
+    return a->unicode ? "┐" : "+";
+}
+
+static inline const char *sym_box_bl(const App *a) {
+    return a->unicode ? "└" : "+";
+}
+
+static inline const char *sym_box_br(const App *a) {
+    return a->unicode ? "┘" : "+";
+}
+
 int ui_init(App *a);
 void ui_draw(App *a);
 
@@ -116,7 +173,7 @@ void draw_scrollbar(App *a, int y0, int h, int rows, int cols);
 void draw_splash(App *a, int y0, int h, int cols);
 void draw_chat(App *a, int rows, int cols);
 int chat_click(App *a, int y);
-void chat_toggle_reason(App *a);
+void chat_toggle_fold(App *a);
 int draw_slice(int y, int x, const char *s, int off, int len, int maxx,
                int pair, int attr, int *endx);
 void panel_frame(App *a, int px, int py, int w, int h,

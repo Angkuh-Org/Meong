@@ -287,6 +287,11 @@ static void build_request(Stream *s, const Endpoint *ep, const char *method,
     buf_printf(&s->req, "%s %s HTTP/1.1\r\n", method, fullpath);
     buf_printf(&s->req, "Host: %s\r\n", ep->host_header);
     buf_printf(&s->req, "User-Agent: Meong/0.1\r\n");
+    char *cwd = getcwd(NULL, 0);
+    if (cwd) {
+        buf_printf(&s->req, "x-paig-workdir: %s\r\n", cwd);
+        free(cwd);
+    }
     buf_printf(&s->req, "Accept: %s\r\n",
                s->expect_sse ? "text/event-stream" : "application/json");
     buf_printf(&s->req, "Accept-Encoding: identity\r\n");

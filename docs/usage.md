@@ -16,20 +16,32 @@ in-app reference.
 | `ctrl-c` | cancel a reply; quit when idle |
 | `ctrl-d` | quit on empty input |
 | `ctrl-l` | redraw |
-| `ctrl-o` | expand or fold the last reasoning block |
+| `ctrl-o` | expand or fold the last reasoning block or tool result |
 | `f1` / click `Meong` | pet the cat (live cat card) |
 | `f2` / click the model | show the model capability card |
 | `up` / `down` | input history |
 | mouse wheel | scroll |
-| click / tap thinking | expand or fold reasoning |
+| click / tap thinking or a tool row | expand or fold it |
 
 The pet card reacts, counts pets, and shows the live model, message and token
 totals, and mood. Typing closes it and still reaches the composer.
 
 `reasoning_content` / `reasoning` deltas are shown dimmed above the answer
 while streaming, then fold when the reply finishes; a cancelled reply stays
-open. Click or tap the thinking line — or any reasoning line — to expand or
+open. Reasoning rows share the tree rail (`│`) and the last row closes with
+`╰─`. Click or tap the thinking line — or any reasoning line — to expand or
 fold it, or press `ctrl-o` for the last reasoning block.
+
+Tool calls hang under the assistant turn as a tree: `├─` for a call that has a
+sibling after it, `╰─` for the last one. The row carries the status glyph
+(`✓` ok, `✗` error, `?` waiting for permission), the shortened arguments, and
+flat metadata on the right: duration, line count, and size. Results stay folded
+by default; click the row (or press `ctrl-o`) to open the output box, and click
+it again to fold. An error previews its first line without opening the box. A
+path outside the cwd waits on its row with `awaiting y/n`; answer in the
+composer with `y` or `n`. Per-turn stats (`N tok | Xs`) are accumulated across
+thinking and tool rounds and drawn once on the trailing line of the final
+assistant message, not beside thinking or on each intermediate response.
 
 ## Request failures
 
