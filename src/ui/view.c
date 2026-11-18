@@ -11,6 +11,10 @@ enum {
     RL_REASON_HEAD,
     RL_NOTE,
     RL_GAP,
+    RL_TOOL_HEAD,
+    RL_TOOL_TOP,
+    RL_TOOL_BODY,
+    RL_TOOL_BOT,
 };
 
 
@@ -22,6 +26,7 @@ struct RLine {
     unsigned char cont;
     unsigned char cursor;
     unsigned char head;
+    unsigned char close;
 };
 
 static void line_push(App *a, int type, int msg, int off, int len, int cont) {
@@ -37,6 +42,7 @@ static void line_push(App *a, int type, int msg, int off, int len, int cont) {
     l->cont = (unsigned char)(cont != 0);
     l->cursor = 0;
     l->head = 0;
+    l->close = 0;
 }
 
 static int line_is_fence(const char *s, size_t len) {
@@ -157,6 +163,56 @@ static void wrap_run(App *a, int mi, const char *s, size_t len, size_t base,
     }
 }
 
+static int tool_is_last(App *a, const Msg *m) {
+    int p = m->tool_parent;
+    if (p < 0 || p >= a->nmsg) {
+        return 1;
+    }
+    return m->tool_pos >= a->msgs[p].ncalls - 1;
+}
+
+static void layout_block(App *a, int mi, const char *text, size_t len,
+                         int type, int width) {
+    if (len == 0) {
+        line_push(a, type, mi, 0, 0, 0);
+        return;
+    }
+    size_t pos = 0;
+    while (pos < len) {
+        size_t nl = pos;
+        while (nl < len && text[nl] != '\n') {
+            nl++;
+        }
+        size_t llen = nl - pos;
+        if (llen == 0) {
+            line_push(a, type, mi, (int)pos, 0, 0);
+        } else {
+            wrap_run(a, mi, text + pos, llen, pos, type, width, 0, 0, 0, 0);
+        }
+        if (nl == len) {
+            break;
+        }
+        pos = nl + 1;
+    }
+}
+
+static void layout_tool(App *a, int mi) {
+    Msg *m = &a->msgs[mi];
+    line_push(a, RL_TOOL_HEAD, mi, 0, 0, 0);
+    if (m->tool_open && m->len > 0) {
+        line_push(a, RL_TOOL_TOP, mi, 0, 0, 0);
+        int w = a->layout_width - 5;
+        if (w < 8) {
+            w = 8;
+        }
+        layout_block(a, mi, m->text, m->len, RL_TOOL_BODY, w);
+        line_push(a, RL_TOOL_BOT, mi, 0, 0, 0);
+    }
+    if (tool_is_last(a, m)) {
+        line_push(a, RL_GAP, mi, 0, 0, 0);
+    }
+}
+
 static void layout_message(App *a, int mi, int incremental) {
     Msg *m = &a->msgs[mi];
     if (m->lay_cursor > 0) {
@@ -165,6 +221,10 @@ static void layout_message(App *a, int mi, int incremental) {
             a->lines[cr].cursor = 0;
         }
         m->lay_cursor = 0;
+    }
+    if (m->role == ROLE_TOOL) {
+        layout_tool(a, mi);
+        return;
     }
     int inc = incremental && m->lay_valid;
     size_t inc_off = m->lay_off;
@@ -175,7 +235,7 @@ static void layout_message(App *a, int mi, int incremental) {
     int inc_text_start = m->lay_text_start;
     m->lay_valid = 0;
 
-    if (m->role == ROLE_NOTE || m->role == ROLE_TOOL) {
+    if (m->role == ROLE_NOTE) {
         if (m->len == 0) {
             line_push(a, RL_NOTE, mi, 0, 0, 0);
         } else {
@@ -189,6 +249,8 @@ static void layout_message(App *a, int mi, int incremental) {
     int text_start;
     int in_code = 0;
     size_t pos = 0;
+    int reason_stream = a->streaming && mi == a->gen_idx && m->rlen > 0 &&
+                        m->len == 0 && m->ncalls == 0;
     if (!inc) {
         if (m->role == ROLE_ASSISTANT && m->rlen > 0) {
             line_push(a, RL_REASON_HEAD, mi, 0, 0, 0);
@@ -196,6 +258,13 @@ static void layout_message(App *a, int mi, int incremental) {
             if (!m->reason_collapsed) {
                 wrap_run(a, mi, m->reason, m->rlen, 0, RL_REASON,
                          a->layout_width, 0, 0, 0, 0);
+                for (int i = a->nlines - 1; i >= 0 && a->lines[i].msg == mi;
+                     i--) {
+                    if (a->lines[i].type == RL_REASON) {
+                        a->lines[i].close = 1;
+                        break;
+                    }
+                }
                 if (m->len > 0) {
                     line_push(a, RL_GAP, mi, 0, 0, 0);
                 }
@@ -253,7 +322,9 @@ static void layout_message(App *a, int mi, int incremental) {
             pos = nl + 1;
             mark_tail(m, pos, a->nlines, 0, pos, in_code);
         }
-    } else {
+    } else if (!reason_stream &&
+               !(m->role == ROLE_ASSISTANT && m->rlen > 0 &&
+                 m->reason_collapsed && m->ncalls > 0)) {
         line_push(a, RL_TEXT, mi, 0, 0, 0);
         mark_tail(m, 0, a->nlines - 1, 0, 0, 0);
     }
@@ -274,9 +345,18 @@ static void layout_message(App *a, int mi, int incremental) {
             text_start < a->nlines) {
             a->lines[text_start].head = 1;
         }
+        if (m->role == ROLE_ASSISTANT && m->rlen > 0 && m->len == 0 &&
+            m->ncalls > 0 && !m->reason_collapsed &&
+            text_start < a->nlines) {
+            a->lines[text_start].head = 1;
+        }
         m->lay_text_start = text_start;
     }
-    line_push(a, RL_GAP, mi, 0, 0, 0);
+    int tool_head_only =
+        m->role == ROLE_ASSISTANT && m->len == 0 && m->ncalls > 0;
+    if (!tool_head_only && !reason_stream) {
+        line_push(a, RL_GAP, mi, 0, 0, 0);
+    }
     if (m->streaming) {
         for (int i = a->nlines - 1; i >= 0; i--) {
             if (a->lines[i].msg != mi) {
@@ -335,6 +415,14 @@ static void layout_build(App *a) {
     a->last_layout = now_sec();
 }
 
+static void mark_relayout(App *a, int mi) {
+    if (a->layout_from == 0 || a->layout_from > mi) {
+        a->layout_from = mi;
+    }
+    a->layout_dirty = 1;
+    a->dirty = 1;
+}
+
 static void reason_toggle(App *a, int mi) {
     Msg *m = &a->msgs[mi];
     if (m->rlen == 0) {
@@ -343,14 +431,27 @@ static void reason_toggle(App *a, int mi) {
     m->reason_collapsed = !m->reason_collapsed;
     m->reason_user_set = 1;
     m->lay_valid = 0;
-    a->layout_from = mi;
-    a->layout_dirty = 1;
-    a->dirty = 1;
+    mark_relayout(a, mi);
 }
 
-void chat_toggle_reason(App *a) {
+static void tool_toggle(App *a, int mi) {
+    Msg *m = &a->msgs[mi];
+    if (m->len == 0) {
+        return;
+    }
+    m->tool_open = !m->tool_open;
+    m->lay_valid = 0;
+    mark_relayout(a, mi);
+}
+
+void chat_toggle_fold(App *a) {
     for (int i = a->nmsg - 1; i >= 0; i--) {
-        if (a->msgs[i].role == ROLE_ASSISTANT && a->msgs[i].rlen > 0) {
+        Msg *m = &a->msgs[i];
+        if (m->role == ROLE_TOOL && m->len > 0) {
+            tool_toggle(a, i);
+            return;
+        }
+        if (m->role == ROLE_ASSISTANT && m->rlen > 0) {
             reason_toggle(a, i);
             return;
         }
@@ -366,10 +467,14 @@ int chat_click(App *a, int y) {
         return 0;
     }
     RLine *l = &a->lines[li];
-    if (l->type != RL_REASON_HEAD && l->type != RL_REASON) {
+    if (l->msg < 0 || l->msg >= a->nmsg) {
         return 0;
     }
-    if (l->msg < 0 || l->msg >= a->nmsg) {
+    if (l->type >= RL_TOOL_HEAD && l->type <= RL_TOOL_BOT) {
+        tool_toggle(a, l->msg);
+        return 1;
+    }
+    if (l->type != RL_REASON_HEAD && l->type != RL_REASON) {
         return 0;
     }
     reason_toggle(a, l->msg);
@@ -449,6 +554,363 @@ int draw_slice(int y, int x, const char *s, int off, int len, int maxx,
     return cx;
 }
 
+static int text_cells(const char *s, int len) {
+    int col = 0;
+    int i = 0;
+    while (i < len) {
+        unsigned char ch = (unsigned char)s[i];
+        if (ch >= 32 && ch < 127) {
+            col++;
+            i++;
+            continue;
+        }
+        wchar_t wc;
+        int n = utf8_next(s + i, (size_t)(len - i), &wc);
+        if (n <= 0) {
+            break;
+        }
+        if (wc == '\r') {
+            i += n;
+            continue;
+        }
+        if (wc == '\t') {
+            col += 4 - (col % 4);
+            i += n;
+            continue;
+        }
+        if (wc < 32) {
+            i += n;
+            continue;
+        }
+        int w = wcwidth(wc);
+        if (w < 0) {
+            w = 1;
+        }
+        col += w;
+        i += n;
+    }
+    return col;
+}
+
+static int fit_bytes(const char *s, int len, int cells) {
+    int col = 0;
+    int i = 0;
+    while (i < len) {
+        unsigned char ch = (unsigned char)s[i];
+        int n;
+        int w;
+        if (ch >= 32 && ch < 127) {
+            n = 1;
+            w = 1;
+        } else {
+            wchar_t wc;
+            n = utf8_next(s + i, (size_t)(len - i), &wc);
+            if (n <= 0) {
+                break;
+            }
+            if (wc == '\r') {
+                i += n;
+                continue;
+            }
+            if (wc == '\t') {
+                w = 4 - (col % 4);
+            } else if (wc < 32) {
+                i += n;
+                continue;
+            } else {
+                w = wcwidth(wc);
+                if (w < 0) {
+                    w = 1;
+                }
+            }
+        }
+        if (col + w > cells) {
+            break;
+        }
+        col += w;
+        i += n;
+    }
+    return i;
+}
+
+static int draw_fit(App *a, int y, int x, int maxx, const char *s, int len,
+                    int pair, int attr) {
+    if (!s || len <= 0) {
+        return x;
+    }
+    int room = maxx - x + 1;
+    if (room <= 0) {
+        return x;
+    }
+    int endx = x;
+    if (text_cells(s, len) <= room) {
+        draw_slice(y, x, s, 0, len, maxx, pair, attr, &endx);
+        return endx;
+    }
+    int cut = fit_bytes(s, len, room - 1);
+    draw_slice(y, x, s, 0, cut, maxx - 1, pair, attr, &endx);
+    wattrset(stdscr, (attr_t)pair | (attr_t)attr);
+    mvaddstr(y, endx, a->unicode ? "…" : "~");
+    return endx + 1;
+}
+
+static void fmt_tool_time(double sec, char *out, size_t cap) {
+    out[0] = '\0';
+    if (sec <= 0) {
+        return;
+    }
+    if (sec < 0.001) {
+        snprintf(out, cap, "<1ms");
+    } else if (sec < 1) {
+        snprintf(out, cap, "%.0fms", sec * 1000.0);
+    } else if (sec < 10) {
+        snprintf(out, cap, "%.1fs", sec);
+    } else {
+        snprintf(out, cap, "%.0fs", sec);
+    }
+}
+
+static void fmt_tool_size(size_t n, char *out, size_t cap) {
+    if (n < 1024) {
+        snprintf(out, cap, "%zu B", n);
+    } else if (n < (1u << 20)) {
+        snprintf(out, cap, "%.1f KB", (double)n / 1024.0);
+    } else {
+        snprintf(out, cap, "%.1f MB", (double)n / (1024.0 * 1024.0));
+    }
+}
+
+static void tool_meta(const App *a, const Msg *m, char *out, size_t cap,
+                      int *fold) {
+    char t[32];
+    fmt_tool_time(m->tool_sec, t, sizeof t);
+    out[0] = '\0';
+    *fold = m->len > 0;
+    if (m->tool_state == TOOL_VIEW_ASK) {
+        snprintf(out, cap, "awaiting y/n");
+        *fold = 0;
+        return;
+    }
+    if (m->tool_state == TOOL_VIEW_ERR) {
+        if (t[0]) {
+            snprintf(out, cap, "error · %s", t);
+        } else {
+            snprintf(out, cap, "error");
+        }
+        return;
+    }
+    int budget = a->layout_width / 3;
+    if (budget < 14) {
+        budget = 14;
+    }
+    if (t[0]) {
+        snprintf(out, cap, "%s", t);
+    }
+    if (m->tool_lines > 0) {
+        char ln[32];
+        snprintf(ln, sizeof ln, "%ld ln", m->tool_lines);
+        size_t n = strlen(out);
+        if (n + 3 + strlen(ln) + 2 <= (size_t)budget) {
+            snprintf(out + n, cap - n, " · %s", ln);
+        }
+    }
+    if (m->tool_bytes > 0) {
+        char sz[32];
+        fmt_tool_size(m->tool_bytes, sz, sizeof sz);
+        size_t n = strlen(out);
+        if (n + 3 + strlen(sz) + 2 <= (size_t)budget) {
+            snprintf(out + n, cap - n, " · %s", sz);
+        }
+    }
+    if (!out[0]) {
+        snprintf(out, cap, "done");
+    }
+}
+
+static void draw_tool_head(App *a, int y, Msg *m, int maxx) {
+    int last = tool_is_last(a, m);
+    wattrset(stdscr, pair_attr(a, P_BORDER));
+    mvaddstr(y, 2, last ? sym_tree_last(a) : sym_tree_mid(a));
+    mvaddstr(y, 3, sym_tree_h(a));
+
+    const char *glyph = sym_tool_ok(a);
+    int gp = P_OK;
+    if (m->tool_state == TOOL_VIEW_ERR) {
+        glyph = sym_tool_err(a);
+        gp = P_ERR;
+    } else if (m->tool_state == TOOL_VIEW_ASK) {
+        glyph = sym_tool_ask(a);
+        gp = P_WAIT;
+    }
+    wattrset(stdscr, pair_attr(a, gp) | A_BOLD);
+    mvaddstr(y, 5, glyph);
+
+    char meta[96];
+    int fold = 0;
+    tool_meta(a, m, meta, sizeof meta, &fold);
+    int mw = (int)strlen(meta) + (fold ? 2 : 0);
+    int mx = maxx - mw + 1;
+    if (mx < 14) {
+        mx = 14;
+    }
+    int title_max = mx - 2;
+    if (title_max < 8) {
+        title_max = 8;
+    }
+
+    const char *label = m->tool_label;
+    if (!label) {
+        label = m->tool_name ? m->tool_name : "";
+    }
+    const char *nm = m->tool_name && *m->tool_name ? m->tool_name : "unknown";
+    int nlen = (int)strlen(nm);
+    int llen = (int)strlen(label);
+    if (nlen > llen) {
+        nlen = llen;
+    }
+    int x = draw_fit(a, y, 7, title_max, label, nlen, pair_attr(a, P_ACCENT),
+                     A_BOLD);
+    if (llen > nlen && x <= title_max) {
+        x = draw_fit(a, y, x, title_max, label + nlen, llen - nlen,
+                     pair_attr(a, P_DIM), 0);
+    }
+    if (m->tool_state == TOOL_VIEW_ERR && !m->tool_open && m->len > 0) {
+        const char *e = m->text;
+        if (strncmp(e, "ERROR: ", 7) == 0) {
+            e += 7;
+        }
+        int n = 0;
+        while (e[n] && e[n] != '\n' && n < 191) {
+            n++;
+        }
+        while (n > 0 && e[n - 1] == ' ') {
+            n--;
+        }
+        int ex = x + 2;
+        if (n > 0 && ex <= title_max) {
+            draw_fit(a, y, ex, title_max, e, n, pair_attr(a, P_ERR), 0);
+        }
+    }
+    if (mx + mw - 1 <= maxx) {
+        int mp = P_DIM;
+        if (m->tool_state == TOOL_VIEW_ERR) {
+            mp = P_ERR;
+        } else if (m->tool_state == TOOL_VIEW_ASK) {
+            mp = P_WAIT;
+        }
+        wattrset(stdscr, pair_attr(a, mp));
+        mvaddstr(y, mx, meta);
+        if (fold) {
+            wattrset(stdscr, pair_attr(a, P_ACCENT));
+            mvaddstr(y, mx + (int)strlen(meta) + 1,
+                     m->tool_open ? sym_fold_open(a) : sym_fold_closed(a));
+        }
+    }
+}
+
+static void draw_hrule(const App *a, int y, int x, int n) {
+    if (n <= 0) {
+        return;
+    }
+    wchar_t wc[2] = {a->unicode ? L'─' : L'-', L'\0'};
+    cchar_t cc;
+    /* Same pair as the corners; whline_set otherwise uses pair 0. */
+    short pair = (short)(a->color ? P_BORDER : 0);
+    if (setcchar(&cc, wc, WA_NORMAL, pair, NULL) != OK) {
+        mvhline(y, x, '-', n);
+        return;
+    }
+    mvhline_set(y, x, &cc, n);
+}
+
+static void draw_tool_box(App *a, int y, const RLine *l, Msg *m, int maxx) {
+    int last = tool_is_last(a, m);
+    wattrset(stdscr, pair_attr(a, P_BORDER));
+    if (!last) {
+        mvaddstr(y, 2, sym_tree_bar(a));
+    }
+    if (l->type == RL_TOOL_TOP) {
+        mvaddstr(y, 5, sym_box_tl(a));
+        draw_hrule(a, y, 6, maxx - 6);
+        mvaddstr(y, maxx, sym_box_tr(a));
+    } else if (l->type == RL_TOOL_BOT) {
+        mvaddstr(y, 5, sym_box_bl(a));
+        draw_hrule(a, y, 6, maxx - 6);
+        mvaddstr(y, maxx, sym_box_br(a));
+    } else {
+        mvaddstr(y, 5, sym_box_v(a));
+        int pair = m->tool_state == TOOL_VIEW_ERR ? P_ERR : P_BASE;
+        draw_slice(y, 7, m->text, l->off, l->len, maxx - 1,
+                   pair_attr(a, pair), 0, NULL);
+        wattrset(stdscr, pair_attr(a, P_BORDER));
+        mvaddstr(y, maxx, sym_box_v(a));
+    }
+}
+
+static int turn_last_assistant(App *a, int mi) {
+    for (int i = mi + 1; i < a->nmsg; i++) {
+        if (a->msgs[i].role == ROLE_USER) {
+            break;
+        }
+        if (a->msgs[i].role == ROLE_ASSISTANT) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/*
+ * Only the last assistant message of a user turn carries the stats, summed
+ * over the whole turn: tool rounds and thinking are part of one answer.
+ */
+static int fmt_turn_stats(App *a, int mi, char *out, size_t cap) {
+    out[0] = '\0';
+    if (mi < 0 || mi >= a->nmsg) {
+        return 0;
+    }
+    Msg *last = &a->msgs[mi];
+    if (last->role != ROLE_ASSISTANT ||
+        (!last->has_stats && !last->stopped) ||
+        !turn_last_assistant(a, mi)) {
+        return 0;
+    }
+    int start = mi;
+    while (start >= 0 && a->msgs[start].role != ROLE_USER) {
+        start--;
+    }
+    long tok = 0;
+    double sec = 0;
+    int any = 0;
+    for (int i = start + 1; i <= mi; i++) {
+        Msg *m = &a->msgs[i];
+        if (m->role != ROLE_ASSISTANT || !m->has_stats) {
+            continue;
+        }
+        tok += m->ctok;
+        sec += m->elapsed;
+        any = 1;
+    }
+    char el[32];
+    char stat[64];
+    stat[0] = '\0';
+    if (any) {
+        fmt_elapsed(sec, el, sizeof el);
+        if (tok > 0) {
+            snprintf(stat, sizeof stat, "%ld tok | %s", tok, el);
+        } else {
+            snprintf(stat, sizeof stat, "%s", el);
+        }
+    }
+    if (last->stopped && stat[0]) {
+        snprintf(out, cap, "stopped | %s", stat);
+    } else if (last->stopped) {
+        snprintf(out, cap, "stopped");
+    } else {
+        snprintf(out, cap, "%s", stat);
+    }
+    return out[0] != '\0';
+}
+
 void draw_chat(App *a, int rows, int cols) {
     int y0 = 1;
     int h = chat_height(a, rows);
@@ -506,34 +968,26 @@ void draw_chat(App *a, int rows, int cols) {
             Msg *gm = &a->msgs[l->msg];
             int last_gap =
                 li + 1 >= a->nlines || a->lines[li + 1].msg != l->msg;
-            if (last_gap && gm->role == ROLE_ASSISTANT &&
-                (gm->stopped || gm->has_stats)) {
+            if (last_gap && gm->role == ROLE_ASSISTANT) {
                 char st[96];
-                char stat[64];
-                stat[0] = '\0';
-                if (gm->has_stats) {
-                    char el[32];
-                    fmt_elapsed(gm->elapsed, el, sizeof el);
-                    if (gm->ctok > 0) {
-                        snprintf(stat, sizeof stat, "%ld tok | %s",
-                                 gm->ctok, el);
-                    } else {
-                        snprintf(stat, sizeof stat, "%s", el);
+                if (fmt_turn_stats(a, l->msg, st, sizeof st)) {
+                    int sl = (int)strlen(st);
+                    if (sl < cols - 4) {
+                        wattrset(stdscr, pair_attr(a, P_DIM));
+                        mvaddstr(y, cols - 3 - sl, st);
                     }
                 }
-                if (gm->stopped && stat[0]) {
-                    snprintf(st, sizeof st, "stopped | %s", stat);
-                } else if (gm->stopped) {
-                    snprintf(st, sizeof st, "stopped");
-                } else {
-                    snprintf(st, sizeof st, "%s", stat);
-                }
-                int sl = (int)strlen(st);
-                if (st[0] && sl < cols - 4) {
-                    wattrset(stdscr, pair_attr(a, P_DIM));
-                    mvaddstr(y, cols - 3 - sl, st);
-                }
             }
+            y++;
+            continue;
+        }
+        if (l->type == RL_TOOL_HEAD) {
+            draw_tool_head(a, y, &a->msgs[l->msg], maxx);
+            y++;
+            continue;
+        }
+        if (l->type >= RL_TOOL_TOP && l->type <= RL_TOOL_BOT) {
+            draw_tool_box(a, y, l, &a->msgs[l->msg], maxx);
             y++;
             continue;
         }
@@ -560,6 +1014,14 @@ void draw_chat(App *a, int rows, int cols) {
             wattrset(stdscr, pair_attr(a, hp) | A_BOLD);
             mvaddstr(y, 2, s);
         }
+        if (l->head && m->role == ROLE_ASSISTANT && l->type == RL_TEXT &&
+            m->len == 0 && m->ncalls > 0) {
+            char nb[48];
+            snprintf(nb, sizeof nb, "  %d tool call%s", m->ncalls,
+                     m->ncalls == 1 ? "" : "s");
+            wattrset(stdscr, pair_attr(a, P_DIM));
+            mvaddstr(y, 4, nb);
+        }
         const char *gut = sym_gutter(a);
         const char *text = m->text;
         int off = l->off;
@@ -577,7 +1039,7 @@ void draw_chat(App *a, int rows, int cols) {
             continue;
         }
         if (l->type == RL_REASON) {
-            gut = sym_reason_gutter(a);
+            gut = l->close ? sym_reason_close(a) : sym_reason_gutter(a);
             text = m->reason;
             text_pair = P_DIM;
         } else if (l->type == RL_CODE) {
@@ -591,7 +1053,11 @@ void draw_chat(App *a, int rows, int cols) {
             wattrset(stdscr, pair_attr(a, gut_pair) | A_DIM);
             mvaddstr(y, 2, gut);
         }
-        draw_slice(y, x, text, off, len, maxx,
+        int tx = x;
+        if (l->type == RL_REASON && l->close) {
+            tx++;
+        }
+        draw_slice(y, tx, text, off, len, maxx,
                    a->color ? pair_attr(a, text_pair) : 0, text_attr, &endx);
         if (l->cursor && m->streaming && a->follow) {
             int blink = ((long long)(now_sec() * 2)) & 1;

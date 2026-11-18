@@ -458,6 +458,7 @@ static void test_search(const char *dir, const char *scratch) {
     ok(rc == TOOL_OK && out.p && strstr(out.p, want) != NULL,
        "search wraps context in chronological order without duplicates");
     buf_free(&out);
+    free(wrap);
 
     snprintf(args, sizeof args,
              "{\"pattern\":\"needle\",\"path\":\"%s\",\"glob\":\"*.c\"}", dir);
@@ -770,6 +771,53 @@ static void rm_rf(const char *path) {
     rmdir(path);
 }
 
+static void check_summary(const char *name, const char *args,
+                          const char *cwd, const char *want,
+                          const char *what) {
+    char out[256];
+    tool_call_summary(name, args, strlen(args), cwd, out, sizeof out);
+    if (strcmp(out, want) != 0) {
+        printf("  summary got %s, want %s\n", out, want);
+    }
+    ok(strcmp(out, want) == 0, what);
+}
+
+static void test_summary(void) {
+    const char *cwd = "/home/u/proj";
+    check_summary("read_file",
+                  "{\"path\":\"/home/u/proj/src/a.c\",\"start_line\":10,"
+                  "\"end_line\":20}",
+                  cwd, "src/a.c:10-20",
+                  "summary shortens the cwd and range");
+    check_summary("read_file",
+                  "{\"path\":\"/home/u/proj/src/a.c\",\"start_line\":10}",
+                  cwd, "src/a.c:10-",
+                  "summary keeps an open-ended range");
+    check_summary("read_file",
+                  "{\"path\":\"/home/u/proj/src/a.c\",\"end_line\":20}", cwd,
+                  "src/a.c:1-20", "summary defaults a missing start to line 1");
+    check_summary("search",
+                  "{\"pattern\":\"tool_\",\"path\":\"/home/u/proj/src\","
+                  "\"glob\":\"*.c\"}",
+                  cwd, "\"tool_\"  src  *.c",
+                  "summary flattens the search pattern and glob");
+    check_summary("list_dir", "{\"path\":\"/home/u/proj\"}", cwd, ".",
+                  "summary prints the cwd as a dot");
+    const char *home = getenv("HOME");
+    if (home && *home) {
+        char args[512];
+        char want[512];
+        snprintf(args, sizeof args, "{\"path\":\"%s/notes.txt\"}", home);
+        snprintf(want, sizeof want, "~/notes.txt");
+        check_summary("read_file", args, cwd, want,
+                      "summary shortens the home directory");
+    }
+    check_summary("nope", "{\"a\": 1,\n \"b\":2}", cwd, "{\"a\": 1, \"b\":2}",
+                  "summary compacts arguments for an unknown tool");
+    check_summary("read_file", "not json", cwd, "not json",
+                  "summary falls back to raw arguments on bad JSON");
+}
+
 int main(void) {
     char root[] = "/tmp/meong-tools-XXXXXX";
     if (!mkdtemp(root)) {
@@ -792,6 +840,7 @@ int main(void) {
     test_permissions(d4);
     test_bound(root);
     test_dispatch();
+    test_summary();
 
     free(d1);
     free(d2);

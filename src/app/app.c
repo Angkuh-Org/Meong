@@ -88,6 +88,7 @@ void msg_release(Msg *m) {
     free(m->calls);
     free(m->call_id);
     free(m->tool_name);
+    free(m->tool_label);
     m->text = NULL;
     m->reason = NULL;
     m->calls = NULL;
@@ -96,7 +97,14 @@ void msg_release(Msg *m) {
     m->args_bytes = 0;
     m->call_id = NULL;
     m->tool_name = NULL;
-    m->tool_error = 0;
+    m->tool_label = NULL;
+    m->tool_parent = -1;
+    m->tool_pos = -1;
+    m->tool_state = TOOL_VIEW_OK;
+    m->tool_open = 0;
+    m->tool_sec = 0;
+    m->tool_lines = 0;
+    m->tool_bytes = 0;
     m->len = 0;
     m->cap = 0;
     m->chars = 0;

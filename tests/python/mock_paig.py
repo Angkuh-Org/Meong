@@ -26,6 +26,9 @@ MODELS = [
     "mock/json200cache",
     "mock/tools",
     "mock/tools-frag",
+    "mock/tools-multi",
+    "mock/tools-think",
+    "mock/tools-think-slow",
 ]
 FLAKY = {}
 FLAKY_LOCK = threading.Lock()
@@ -63,11 +66,55 @@ CAPABILITIES = {
         "output_cost_per_token": 0,
         "estimated": True,
     },
+    "mock/tools-multi": {
+        "context_window": 131072,
+        "max_output_tokens": 65536,
+        "supports_function_calling": True,
+        "supports_reasoning": False,
+        "supports_prompt_caching": True,
+        "input_cost_per_token": 0,
+        "output_cost_per_token": 0,
+        "estimated": True,
+    },
+    "mock/tools-think": {
+        "context_window": 131072,
+        "max_output_tokens": 65536,
+        "supports_function_calling": True,
+        "supports_reasoning": True,
+        "supports_prompt_caching": True,
+        "input_cost_per_token": 0,
+        "output_cost_per_token": 0,
+        "estimated": True,
+    },
+    "mock/tools-think-slow": {
+        "context_window": 131072,
+        "max_output_tokens": 65536,
+        "supports_function_calling": True,
+        "supports_reasoning": True,
+        "supports_prompt_caching": True,
+        "input_cost_per_token": 0,
+        "output_cost_per_token": 0,
+        "estimated": True,
+    },
 }
 CHUNKS = [3, 11, 1, 7, 19, 5, 13, 2]
 TOOL_CALL_ID = "call_1"
 TOOL_NAME = "read_file"
 TOOL_ARGS = '{"path":"/proj/version.txt"}'
+TOOL_OK_ARGS = '{"path":"notes.md","start_line":1,"end_line":3}'
+TOOL_DIR_ID = "call_2"
+TOOL_DIR_NAME = "list_dir"
+TOOL_DIR_ARGS = '{"path":"."}'
+TOOL_CONTRACT = {
+    "mock/tools": [(TOOL_CALL_ID, TOOL_NAME)],
+    "mock/tools-frag": [(TOOL_CALL_ID, TOOL_NAME)],
+    "mock/tools-multi": [
+        (TOOL_CALL_ID, TOOL_NAME),
+        (TOOL_DIR_ID, TOOL_DIR_NAME),
+    ],
+    "mock/tools-think": [(TOOL_CALL_ID, TOOL_NAME)],
+    "mock/tools-think-slow": [(TOOL_CALL_ID, TOOL_NAME)],
+}
 # mock/tools-frag ships TOOL_ARGS split into exactly these three deltas; the
 # later two carry neither `index` nor `id`, so a client that only joins by
 # index or id sees three calls, not one. See tool_accum.c.
@@ -118,23 +165,31 @@ def usage_obj(model):
     }
 
 
-def tool_result_error(req):
-    """Check every role:"tool" message against the call_1/read_file contract.
+def tool_result_error(req, model):
+    """Check every role:"tool" message against the model's call contract.
 
     Returns None when the tool turn is well formed, else a reason string that
     do_POST serves as HTTP 400 so a broken client fails loudly instead of
     silently passing the TUI test.
     """
-    for m in req.get("messages") or []:
-        if m.get("role") != "tool":
-            continue
-        if m.get("tool_call_id") != TOOL_CALL_ID:
+    want = TOOL_CONTRACT.get(model) or [(TOOL_CALL_ID, TOOL_NAME)]
+    msgs = req.get("messages") or []
+    got = [m for m in msgs if m.get("role") == "tool"]
+    has_calls = any(
+        m.get("role") == "assistant" and m.get("tool_calls") for m in msgs
+    )
+    if not got and not has_calls:
+        return None
+    if len(got) != len(want):
+        return "expected %d tool messages, got %d" % (len(want), len(got))
+    for m, (call_id, name) in zip(got, want):
+        if m.get("tool_call_id") != call_id:
             return "tool_call_id must be %r, got %r" % (
-                TOOL_CALL_ID,
+                call_id,
                 m.get("tool_call_id"),
             )
-        if m.get("name") != TOOL_NAME:
-            return "tool name must be %r, got %r" % (TOOL_NAME, m.get("name"))
+        if m.get("name") != name:
+            return "tool name must be %r, got %r" % (name, m.get("name"))
         if not m.get("content"):
             return "tool content must be non-empty"
     return None
@@ -266,7 +321,7 @@ class Handler(BaseHTTPRequestHandler):
                 b"data: [DONE]\n\n",
             ]
             payload = b"".join(frames)
-        elif model in ("mock/tools", "mock/tools-frag"):
+        elif model in TOOL_CONTRACT:
             try:
                 req = json.loads(body)
                 answered = any(
@@ -280,9 +335,79 @@ class Handler(BaseHTTPRequestHandler):
                     if m.get("role") == "tool":
                         c = m.get("content")
                         text = c if isinstance(c, str) else json.dumps(c)
+                final = (
+                    "done with tools"
+                    if model in ("mock/tools-think", "mock/tools-think-slow")
+                    else "tool said: " + text
+                )
                 frames = [
-                    sse_frame(chunk_obj(model, {"content": "tool said: " + text})),
+                    sse_frame(chunk_obj(model, {"content": final})),
                     sse_frame(chunk_obj(model, {}, "stop")),
+                    sse_frame(usage_obj(model)),
+                    b"data: [DONE]\n\n",
+                ]
+            elif model in ("mock/tools-think", "mock/tools-think-slow"):
+                frames = [
+                    sse_frame(
+                        chunk_obj(
+                            model, {"reasoning_content": "thinking a little "}
+                        )
+                    ),
+                    sse_frame(
+                        chunk_obj(model, {"reasoning_content": "with tools"})
+                    ),
+                    sse_frame(
+                        chunk_obj(
+                            model,
+                            {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": TOOL_CALL_ID,
+                                        "type": "function",
+                                        "function": {
+                                            "name": TOOL_NAME,
+                                            "arguments": TOOL_OK_ARGS,
+                                        },
+                                    }
+                                ]
+                            },
+                        )
+                    ),
+                    sse_frame(chunk_obj(model, {}, "tool_calls")),
+                    sse_frame(usage_obj(model)),
+                    b"data: [DONE]\n\n",
+                ]
+            elif model == "mock/tools-multi":
+                frames = [
+                    sse_frame(
+                        chunk_obj(
+                            model,
+                            {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": TOOL_CALL_ID,
+                                        "type": "function",
+                                        "function": {
+                                            "name": TOOL_NAME,
+                                            "arguments": TOOL_OK_ARGS,
+                                        },
+                                    },
+                                    {
+                                        "index": 1,
+                                        "id": TOOL_DIR_ID,
+                                        "type": "function",
+                                        "function": {
+                                            "name": TOOL_DIR_NAME,
+                                            "arguments": TOOL_DIR_ARGS,
+                                        },
+                                    },
+                                ]
+                            },
+                        )
+                    ),
+                    sse_frame(chunk_obj(model, {}, "tool_calls")),
                     sse_frame(usage_obj(model)),
                     b"data: [DONE]\n\n",
                 ]
@@ -369,7 +494,11 @@ class Handler(BaseHTTPRequestHandler):
             )
 
         try:
-            if model in ("mock/slow", "mock/slowerror"):
+            if model in (
+                "mock/slow",
+                "mock/slowerror",
+                "mock/tools-think-slow",
+            ):
                 for frame in frames:
                     self._chunk(frame)
                     time.sleep(0.50)
@@ -401,8 +530,8 @@ class Handler(BaseHTTPRequestHandler):
         model = req.get("model", "")
         stream = bool(req.get("stream"))
 
-        if model in ("mock/tools", "mock/tools-frag"):
-            err = tool_result_error(req)
+        if model in TOOL_CONTRACT:
+            err = tool_result_error(req, model)
             if err:
                 self._json(
                     400,

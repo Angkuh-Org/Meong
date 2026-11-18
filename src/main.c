@@ -374,7 +374,7 @@ static void handle_key(App *a, wint_t wch, int special) {
         return;
     }
     if (wch == 15) {
-        chat_toggle_reason(a);
+        chat_toggle_fold(a);
         return;
     }
     if (wch == 7) {

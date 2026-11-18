@@ -22,12 +22,27 @@ Details:
 ## Permission model
 
 - A path inside Meong's working directory runs immediately.
-- A path outside it appends a `permission required` note and waits for `y`
-  (allow) or `n` (deny). The decision applies to that call only.
+- Meong sends its process cwd as `x-paig-workdir` on each request, so PAIG's
+  free-model `<env>` block matches the directory these tools resolve against.
+- A path outside it turns the call row into `? … awaiting y/n` and waits for
+  `y` (allow) or `n` (deny); the composer shows the same prompt. The decision
+  applies to that call only.
 - `--yolo` or `MEONG_YOLO=1` disables the prompt and allows every path.
   **This includes credential files** such as `~/.ssh/*` and `~/.paig/config.json`;
   only use it when you accept that a prompt-injected tool result could read
   them and send their contents upstream through PAIG.
+
+## Display
+
+Tool calls hang under the assistant turn as a tree: `├─` marks a call with a
+sibling after it, `╰─` the last call. A row carries the status glyph (`✓` ok,
+`✗` error, `?` permission), the tool name, a shortened argument summary, and
+flat metadata on the right (duration, lines, size). Results are collapsed by
+default; click the row or press `ctrl-o` to open the output in a box, and click
+again to fold. An error previews its first line on the row without opening the
+box. Arguments are shortened for display only: the request keeps the exact
+JSON from the model, and the stored `role:"tool"` text is only the handler
+result, never the tree or metadata.
 
 ## Results and limits
 
@@ -36,8 +51,8 @@ Details:
 - Results up to 16 KiB stay inline. Larger results keep the first 1/5 and last
   4/5 with an omission notice; the full text is written under the cache
   directory's `tool-output/` path.
-- A turn stops after 8 tool rounds. Cancelling a tool chain synthesizes an
-  `[interrupted by user]` result for every unanswered call id.
+- A turn stops after 8 tool rounds. Cancelling a tool chain fills an
+  `[interrupted by user]` result into every unanswered call position.
 - Tool output is treated as untrusted data: the system policy tells the model
   not to follow instructions found inside it. That reduces, but does not
   eliminate, prompt-injection risk.
