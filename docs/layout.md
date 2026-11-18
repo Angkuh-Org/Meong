@@ -1,8 +1,8 @@
 # Layout
 
-`src/` holds the linked client. `src/rules/` and `tools/` hold the host-side
-rulebook gate: `build.sh` compiles them with `HOSTCC` into `build/rulecheck`
-before the client, so rulebook code never enters `build/meong`.
+`src/` holds the linked client.
+`src/rules/` and `tools/` hold the host-side
+rulebook gate: rulebook code never enters `build/meong`.
 
 ```text
 src/

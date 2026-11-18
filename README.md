@@ -30,9 +30,7 @@ The installer verifies the release SHA-256, probes the binary, and installs to
 
 ## Run
 
-PAIG must be running; Meong defaults to `http://127.0.0.1:8899`. The gateway
-does not authenticate inbound requests, so keep it on loopback.
-
+Currently Meong need [PAIG](https://github.com/Angkuh-Org/PAIG) to run;
 ```sh
 meong                                          # open the TUI
 meong --oneshot 'hello' \
@@ -42,20 +40,13 @@ meong --stream --oneshot 'hello' \
 meong --list-models                            # one prefixed model id per line
 ```
 
-The examples use the installed binary; from a build tree, use `./build/meong`.
-Inside the TUI, `?` on an empty composer opens the in-app reference. Model ids
-keep their PAIG backend prefix; `--list-models` prints the full ids.
-Selection order, saved state, and the catalogue cache:
+Selection order, saved state, tools and the catalogue cache:
 [`docs/models.md`](docs/models.md).
-
-Read-only tools (`read_file`, `search`, `list_dir`) run inside the working
-directory; outside paths prompt for permission, and `--yolo` disables that
-prompt. Details: [`docs/tools.md`](docs/tools.md).
+[`docs/tools.md`](docs/tools.md).
 
 ## Build
 
-Requires `cc`, `ncursesw` headers, and `pkg-config` (optional; the build falls
-back to `-lncursesw`).
+Requires `cc` and `ncursesw` headers.
 
 ```sh
 ./build.sh              # -> build/meong
@@ -63,12 +54,6 @@ back to `-lncursesw`).
 ./build.sh help         # commands, environment, examples
 ./tests/test.sh         # offline mock + pty/tmux TUI tests
 ```
-
-A local stripped build is ~140 KB with lld; GNU bfd defaults to 64K
-max-page-size on aarch64 and links a larger binary.
-
-Release binaries are built on Ubuntu 22.04 and need glibc 2.35+,
-`libncursesw.so.6`/`libtinfo.so.6`, and a terminfo entry (`ncurses-base`).
 
 ## Docs
 
@@ -83,8 +68,7 @@ Release binaries are built on Ubuntu 22.04 and need glibc 2.35+,
 ## Performance
 
 v0.2.1 removes the per-event JSON allocations, re-wraps only the streaming
-tail, and parses the common SSE frame without jsmn. Release builds of both
-trees, same mock workload:
+tail, and parses the common SSE frame without jsmn:
 
 ![Meong v0.2.0-rc1 vs v0.2.1 benchmark](docs/images/profile-v0.2.0-rc1-vs-v0.2.1.png)
 
@@ -94,8 +78,7 @@ trees, same mock workload:
 - forced layout, 3,125 × 64 B appends on 200 KB: 99.2% less work, 123× faster
 - binary: 79,496 B → 86,568 B (+7,072 B)
 
-These are loopback instruction ratios, not gateway latency; the wall-clock
-row uses the same local mock on both sides. Method and raw numbers:
+Method and raw numbers:
 [`docs/perf.md`](docs/perf.md).
 
 ## License

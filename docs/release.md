@@ -17,20 +17,17 @@ Tags containing `-` (for example `v0.5.0-rc1`) are published as prereleases.
 
 ## Runtime requirements
 
-- glibc 2.35 or newer. Release builds stay on Ubuntu 22.04 on purpose: a local
-  build leaks newer symbols (`__isoc23_*` from glibc 2.38) and will not start
-  on 22.04 or Debian 12.
+- Release builds stay on Ubuntu 22.04.
 - `libncursesw.so.6` and `libtinfo.so.6` (`libncursesw6`/`libtinfo6` on
   Debian/Ubuntu, `ncurses-libs` on Fedora, `ncurses` on Arch).
 - A terminfo entry for `$TERM` (`ncurses-base` on Debian/Ubuntu/Fedora).
   ncurses reads `/usr/share/terminfo` at runtime; an unknown `$TERM` exits with
   `ncurses: cannot initialize terminal type`.
-- Termux/Android: these are glibc binaries and will not run there. Build from
-  source with `./build.sh` on the device.
+- Termux/Android: Build from source with `./build.sh`.
 
 ncursesw stays dynamically linked on purpose. Static ncursesw removes the
-`.so` but grows the binary from ~78 KB to ~338 KB and still needs terminfo, so
-the default stays small. A fully static glibc build is not shipped: its
+`.so` but grows the binary from ~78 KB to ~338 KB and still needs terminfo. 
+A fully static glibc build is not shipped: its
 `getaddrinfo` loads NSS modules from the host, which breaks name resolution
 across distros.
 

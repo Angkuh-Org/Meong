@@ -1,8 +1,8 @@
 # Tools
 
-Meong's TUI exposes three **read-only** tools. They are sent only when the
+Meong's TUI (for now) exposes three **read-only** tools. They are sent only when the
 selected model reports `supports_function_calling: true`; `--oneshot` does not
-send a `tools` array. There is no shell, write, or delete tool.
+send a `tools` array. There is no (yet) shell, write, or delete tool.
 
 | Tool | Arguments | Behavior |
 | --- | --- | --- |
@@ -39,27 +39,22 @@ Details:
 ## Display
 
 Tool calls hang under the assistant turn as a tree: `├─` marks a call with a
-sibling after it, `╰─` the last call. A row carries the status glyph (`✓` ok,
-`✗` error, `?` permission), the tool name, a shortened argument summary, and
-flat metadata on the right (duration, lines, size). Results are collapsed by
-default; click the row or press `ctrl-o` to open the output in a box, and click
-again to fold. An error previews its first line on the row without opening the
+sibling after it, `╰─` the last call. A row carries the status glyph (`✓` ok, `✗` error, `?` permission), the tool name, a shortened argument summary, and flat metadata on the right. 
+
+Results are collapsed by default; click the row or press `ctrl-o` to open the output in a box, and click
+again to fold.
+
+An error previews its first line on the row without opening the
 box. Arguments are shortened for display only: the request keeps the exact
 JSON from the model, and the stored `role:"tool"` text is only the handler
 result, never the tree or metadata.
 
 ## Results and limits
 
-- Tool results are one `role:"tool"` message per call, in call order, with the
-  call id and name.
-- Results up to 16 KiB stay inline. Larger results keep the first 1/5 and last
-  4/5 with an omission notice; the full text is written under the cache
-  directory's `tool-output/` path.
-- A turn stops after 8 tool rounds. Cancelling a tool chain fills an
-  `[interrupted by user]` result into every unanswered call position.
-- Tool output is treated as untrusted data: the system policy tells the model
-  not to follow instructions found inside it. That reduces, but does not
-  eliminate, prompt-injection risk.
+- Tool results are one `role:"tool"` message per call, in call order, with the call id and name.
+- Results up to 16 KiB stay inline. Larger results keep the first 1/5 and last 4/5 with an omission notice; the full text is written under the cache directory's `tool-output/` path.
+- A turn stops after 8 tool rounds. Cancelling a tool chain fills an `[interrupted by user]` result into every unanswered call position.
+- Tool output is treated as untrusted data: the system policy tells the model not to follow instructions found inside it. That reduces, but does not eliminate, prompt-injection risk.
 
 Keys and configuration: [usage.md](usage.md). Internal module map:
 [layout.md](layout.md).

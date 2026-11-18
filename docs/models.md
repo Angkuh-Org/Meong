@@ -1,6 +1,6 @@
 # Models
 
-Meong talks to the models PAIG exposes. Every id carries its backend prefix;
+Meong talks to the models PAIG exposes.
 `meong --list-models` prints the full ids.
 
 ## Selection
@@ -34,7 +34,7 @@ Meong caches `/v1/models` in `models`:
 - `MEONG_CACHE_DIR` overrides the directory.
 - otherwise `$XDG_CACHE_HOME/meong`, then `~/.cache/meong`.
 
-The cache is versioned; an older cache triggers one live refetch and is
+An older cache triggers one live refetch and is
 rewritten when that fetch succeeds. `/models` refreshes both the catalogue and
 the capability card.
 
@@ -43,5 +43,4 @@ the capability card.
 `f2` or clicking the provider/model in the header opens the card: context
 window, output limit, vision/tools/reasoning/caching, and cost when the
 gateway reports them. Fields the gateway did not report are listed as
-`not reported:`; values filled by PAIG from models.dev carry a
-`~ models.dev estimate` footer.
+`not reported:`;
