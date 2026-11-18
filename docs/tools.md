@@ -19,11 +19,15 @@ Details:
   capped at 20.
 - `list_dir` caps at 500 entries.
 
-## Permission model
+## How paths resolve
 
-- A path inside Meong's working directory runs immediately.
+- Tool paths resolve against Meong's working directory.
 - Meong sends its process cwd as `x-paig-workdir` on each request, so PAIG's
   free-model `<env>` block matches the directory these tools resolve against.
+
+## Permission model
+
+- A path inside runs immediately.
 - A path outside it turns the call row into `? … awaiting y/n` and waits for
   `y` (allow) or `n` (deny); the composer shows the same prompt. The decision
   applies to that call only.

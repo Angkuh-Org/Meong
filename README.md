@@ -64,7 +64,7 @@ back to `-lncursesw`).
 ./tests/test.sh         # offline mock + pty/tmux TUI tests
 ```
 
-A local stripped build is ~130 KB with lld; GNU bfd defaults to 64K
+A local stripped build is ~140 KB with lld; GNU bfd defaults to 64K
 max-page-size on aarch64 and links a larger binary.
 
 Release binaries are built on Ubuntu 22.04 and need glibc 2.35+,

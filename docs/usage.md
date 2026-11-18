@@ -16,7 +16,7 @@ in-app reference.
 | `ctrl-c` | cancel a reply; quit when idle |
 | `ctrl-d` | quit on empty input |
 | `ctrl-l` | redraw |
-| `ctrl-o` | expand or fold the last reasoning block or tool result |
+| `ctrl-o` | fold the last collapsible block (reasoning or tool) |
 | `f1` / click `Meong` | pet the cat (live cat card) |
 | `f2` / click the model | show the model capability card |
 | `up` / `down` | input history |
@@ -28,20 +28,8 @@ totals, and mood. Typing closes it and still reaches the composer.
 
 `reasoning_content` / `reasoning` deltas are shown dimmed above the answer
 while streaming, then fold when the reply finishes; a cancelled reply stays
-open. Reasoning rows share the tree rail (`│`) and the last row closes with
-`╰─`. Click or tap the thinking line — or any reasoning line — to expand or
-fold it, or press `ctrl-o` for the last reasoning block.
-
-Tool calls hang under the assistant turn as a tree: `├─` for a call that has a
-sibling after it, `╰─` for the last one. The row carries the status glyph
-(`✓` ok, `✗` error, `?` waiting for permission), the shortened arguments, and
-flat metadata on the right: duration, line count, and size. Results stay folded
-by default; click the row (or press `ctrl-o`) to open the output box, and click
-it again to fold. An error previews its first line without opening the box. A
-path outside the cwd waits on its row with `awaiting y/n`; answer in the
-composer with `y` or `n`. Per-turn stats (`N tok | Xs`) are accumulated across
-thinking and tool rounds and drawn once on the trailing line of the final
-assistant message, not beside thinking or on each intermediate response.
+open. Click or tap the thinking line — or any reasoning line — to expand or
+fold it, or press `ctrl-o` for the last collapsible block.
 
 ## Request failures
 
@@ -69,8 +57,9 @@ first `enter`.
 
 ## Tools
 
-Read-only tools, the cwd permission prompt, `--yolo`, and output bounds:
-[`tools.md`](tools.md).
+Read-only tools render as a tree under the assistant; rows show status,
+shortened arguments, and duration/size, and open into a box. Permission,
+display details, and output bounds: [`tools.md`](tools.md).
 
 ## Configuration
 
@@ -98,6 +87,7 @@ Model state and cache paths: [`models.md`](models.md).
   all non-ASCII chrome.
 - Code fences are rendered in a separate color; input supports UTF-8 and wide
   characters.
+- Reasoning rows use the `│` rail; the last row closes with `╰─`.
 
 ## Context and footer
 
@@ -107,3 +97,6 @@ Model state and cache paths: [`models.md`](models.md).
 - The footer shows `ctx N%` and, when the gateway reports it, `cache N%` from
   `usage.prompt_tokens_details.cached_tokens`. `cache -` means the gateway
   omitted the field; `cache 0%` means it reported a real zero.
+- Each finished turn prints one `N tok | Xs` line at the bottom of its final
+  response. Tokens and elapsed time are summed across the thinking and tool
+  rounds of that turn; intermediate responses do not print their own line.

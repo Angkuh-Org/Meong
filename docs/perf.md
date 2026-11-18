@@ -3,7 +3,7 @@
 Four passes so far. v0.2.1 removes the per-event JSON allocations, re-wraps only
 the streaming tail, and parses the common SSE frame without jsmn. v0.6.0 is a
 UI no-regression check: it changes the status band, footer, and header without
-touching the streaming hot path.
+touching the streaming hot path. v0.11.0 is the tool-call layout pass below.
 
 ![Meong v0.2.0-rc1 vs v0.2.1 benchmark](images/profile-v0.2.0-rc1-vs-v0.2.1.png)
 
@@ -11,24 +11,21 @@ touching the streaming hot path.
 
 The tool-call UI is the feature; the stream and cache paths are unchanged. The
 request path only adds a per-request `getcwd(NULL, 0)` for `x-paig-workdir`.
-Both sizes below are `./build.sh` builds with the same `cc`/`ld.lld`: the
-stripped binary grows 132,632 → 142,728 B (+10,096 B, +7.6%) and `.text` grows
-101,612 → 111,276 B. `Msg` grows 216 → 256 B, carrying the display state
-(`tool_label`, parent/position, state, timing, lines, bytes). The largest new
-pieces are `tool_call_summary()` at ~2.0 KB (it parses the call's JSON to
-shorten paths and patterns for display) and `draw_chat()` at 3,004 → 6,400 B
-(the tree row, box, reasoning rail and closing corner, and the no-gap
-attachment of a thinking-only turn to its tool rows); `draw_fit()`'s 756 B
-folds into `draw_chat` after the pass below. `resume_tool_calls()` grows 368 →
-1,280 B because the 1,024-byte handler error buffer moved here from
-`execute_tool_call`; `run_tool()` is 1,040 B smaller, so the pair is 64 B
-larger, not a stack regression. Turn stats are summed across every assistant
-message between two user turns and drawn once on the trailing line of the last
-assistant message, so tool rounds and thinking do not print a per-response
-counter. A tool round now rebuilds from the last user message rather than the
-last tool row, so the assistant's mid-stream placeholder and gap rows are
-replaced by the compact final layout. The wire contract did not change: the
-stored `role:"tool"` text is still only the handler result.
+The file sizes are `./build.sh` builds with the same `cc`/`ld.lld`; `.text` is
+`size -A build/meong`. The stripped binary grows 132,632 → 142,728 B
+(+10,096 B, +7.6%) and `.text` grows 101,612 → 111,276 B. `Msg` grows
+216 → 256 B, carrying the display state (`tool_label`, parent/position, state,
+timing, lines, bytes). The largest new pieces are `tool_call_summary()` at
+~2.0 KB (it parses the call's JSON to shorten paths and patterns for display)
+and `draw_chat()` at 3,004 → 6,400 B (the tree row, box, reasoning rail and
+closing corner, and the no-gap attachment of a thinking-only turn to its tool
+rows); `draw_fit()`'s 756 B folds into `draw_chat` after the pass below.
+`resume_tool_calls()` grows 368 → 1,280 B because the 1,024-byte handler error
+buffer moved here from `execute_tool_call`; `run_tool()` is 1,040 B smaller,
+so the pair is 64 B larger, not a stack regression. `draw_chat()` also carries
+the once-per-turn stats line ([usage.md](usage.md)); the relayout invariant is
+in [layout.md](layout.md). The wire contract did not change: the stored
+`role:"tool"` text is still only the handler result.
 
 A follow-up codegen pass on the same tree trimmed the new draw path without
 touching the wire or layout: in the `-O2 -g` twin `draw_chat()` is 1,692 →
@@ -39,12 +36,14 @@ fixed 110x44 session with eight forced redraws the ncurses entry-point counter
 fell 12,257 → 8,873 `wmove` and 10,862 → 7,444 `waddnstr`, replaced by 34
 `whline_set` calls; this is a call count, not a wall-time measurement.
 `build_request()` dropped `char cwd[4096]` for `getcwd(NULL, 0)`, cutting its
-frame 4,704 → 608 B without changing the per-request header value. Final
-stripped release is 142,728 B: `.text` is 96 B smaller than the pre-pass tree,
-but the file is 80 B larger because the new `setcchar`/`whline_set` PLT entries
-grow the dynamic tables (`.dynsym`/`.rela.plt`/`.plt`). No register headroom was
-found in the changed draw code; the remaining growth is the inlined tool branch
-plus the `Msg` stride, not spills.
+frame 4,704 → 608 B without changing the per-request header value. The final
+local stripped build is 142,728 B: `.text` is 96 B smaller than the pre-pass
+tree, but the file is 80 B larger because the new `setcchar`/`whline_set` PLT
+entries grow the dynamic tables (`.dynsym`/`.rela.plt`/`.plt`). No register
+headroom was found in the changed draw code; the remaining growth is the
+inlined tool branch plus the `Msg` stride, not spills. The published v0.11.0
+assets are 140,176 B (aarch64) and 147,240 B (x86_64); local build sizes are
+not release sizes.
 
 Verification: `./tests/test.sh` is 71/71 green, including a 40x20 `LC_ALL=C`
 tool-box case that bounds the body row between the top and bottom rules.
