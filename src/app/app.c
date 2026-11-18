@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "ui/md.h"
+
 void *xcalloc(size_t n, size_t sz) {
     void *p = xmalloc(n * sz);
     memset(p, 0, n * sz);
@@ -77,6 +79,7 @@ void msgs_clear(App *a) {
 }
 
 void msg_release(Msg *m) {
+    md_release(m);
     free(m->text);
     free(m->reason);
     for (int i = 0; i < m->ncalls; i++) {
@@ -177,6 +180,7 @@ void queue_clear(App *a) {
 }
 
 void msg_set(Msg *m, const char *text) {
+    md_reset(m);
     free(m->text);
     m->text = NULL;
     m->len = 0;
@@ -259,5 +263,6 @@ void trim_trailing_ws(Msg *m) {
         }
         m->reason[m->rlen] = '\0';
     }
+    md_reset(m);
 }
 

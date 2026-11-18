@@ -538,8 +538,9 @@ static void draw_status(App *a, int rows, int cols) {
         }
         int endx = x;
         if (maxx >= x) {
-            draw_slice(y, x, a->queued[0], 0, (int)strlen(a->queued[0]),
-                       maxx, a->color ? pair_attr(a, P_DIM) : 0, 0, &endx);
+            draw_slice(a, y, x, a->queued[0], 0, (int)strlen(a->queued[0]),
+                       maxx, a->color ? pair_attr(a, P_DIM) : 0, 0, 0, 0,
+                       &endx);
         }
         if (more[0]) {
             int mx = cols - 2 - (int)strlen(more);

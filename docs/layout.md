@@ -39,7 +39,9 @@ chat click.
 per-model capabilities, picker, help, pet-card, capability-card and
 error-window state, the active stream, the prompt queue, the scroll/layout
 cache, composer text, history, and theme flags. `app.c` owns
-message and queue storage and the config/cache directory rules. `state.c`
+message and queue storage and the config/cache directory rules; it also calls
+`md_reset`/`md_release` so a `Msg` owns its display buffer even though the
+markdown translator itself lives in `ui/md.c`. `state.c`
 reads and writes the last selected model; user-facing behavior is in
 [`models.md`](models.md).
 
@@ -134,13 +136,17 @@ physical lines.
 mouse), the header, status, input, and footer chrome, the splash and scrollbar,
 and the `ui_draw()` frame; the header draws the
 `nf-fa-cat` mark and records the `Meong` brand box so a click or tap pets the
-cat. `view.c` owns `RLine`, the wrapped row model behind the transcript:
-paragraph wrapping, code fences, reasoning lines, notes, tool tree rows, the
-expanded-output box, `draw_slice()` for UTF-8 and wide cells, the click
-hit-test that expands or folds a reasoning block or tool result, and a
-per-message tail cursor so streaming re-wraps only the last row plus the new
-bytes. A tool row's rail state comes from `(tool_parent, tool_pos)`, so an
-incremental layout never leaves a stale `╰─` on the first of two calls.
+cat. `md.c` owns the append-only assistant display buffer: it consumes raw
+markdown as it streams, holds ambiguous tails until the next chunk, and emits
+visible text plus zero-width style and block-metadata commands. `view.c` owns
+`RLine`, the wrapped row model behind the transcript:
+paragraph wrapping, code boxes, reasoning lines, notes, tool tree rows, the
+expanded-output box, `draw_slice()` for UTF-8, wide cells and markdown style
+runs, the click hit-test that expands or folds a reasoning block or tool
+result, and a per-message tail cursor so streaming re-wraps only the last row
+plus the new bytes. A tool row's rail state comes from `(tool_parent,
+tool_pos)`, so an incremental layout never leaves a stale `╰─` on the first of
+two calls.
 `pet.c` owns the pet card: the ASCII cat, reaction pools, mood and stats
 selection, and its responsive layout. `panel.c` draws the model picker, help
 overlay, and slash-command menu, and owns the shared `panel_frame()` primitive.

@@ -36,13 +36,17 @@ static void rows_match(App *inc, App *full) {
         RLine *b = &full->lines[i];
         if (a->type != b->type || a->msg != b->msg || a->off != b->off ||
             a->len != b->len || a->cont != b->cont ||
-            a->cursor != b->cursor || a->head != b->head) {
+            a->cursor != b->cursor || a->head != b->head ||
+            a->close != b->close || a->hang != b->hang ||
+            a->style != b->style) {
             printf("FAIL step %d row %d: inc[t=%d m=%d off=%d len=%d c=%d "
-                   "cur=%d h=%d] full[t=%d m=%d off=%d len=%d c=%d cur=%d "
-                   "h=%d]\n",
+                   "cur=%d h=%d cl=%d hang=%d sty=%d] "
+                   "full[t=%d m=%d off=%d len=%d c=%d cur=%d h=%d cl=%d "
+                   "hang=%d sty=%d]\n",
                    step, i, a->type, a->msg, a->off, a->len, a->cont,
-                   a->cursor, a->head, b->type, b->msg, b->off, b->len,
-                   b->cont, b->cursor, b->head);
+                   a->cursor, a->head, a->close, a->hang, a->style,
+                   b->type, b->msg, b->off, b->len, b->cont, b->cursor,
+                   b->head, b->close, b->hang, b->style);
             fails++;
             return;
         }
@@ -72,9 +76,25 @@ static void layout_full(App *a) {
     layout_build(a);
 }
 
+/* The incremental cursor is only legal on a display-line boundary.  A
+ * metadata prefix is part of the line, so lay_para must point at it, not at
+ * the first visible byte; otherwise the next delta takes a full rebuild. */
+static void check_cursor(App *inc) {
+    Msg *m = &inc->msgs[inc->gen_idx];
+    if (!m->lay_valid || m->lay_para == 0) {
+        return;
+    }
+    const char *p = m->role == ROLE_ASSISTANT && m->disp ? m->disp : m->text;
+    size_t blen = m->role == ROLE_ASSISTANT ? m->dlen : m->len;
+    check(m->lay_para <= blen && p && p[m->lay_para - 1] == '\n',
+          "lay_para sits on a line start");
+    check(m->lay_para <= m->lay_off, "lay_para precedes the visible row");
+}
+
 static void sync_layout(App *inc, App *full, int first) {
     step++;
     layout_inc(inc, first);
+    check_cursor(inc);
     layout_full(full);
     rows_match(inc, full);
 }
@@ -101,6 +121,7 @@ static void finish_both(App *inc, App *full) {
 
 static void free_app(App *a) {
     free(a->lines);
+    md_release(&a->msgs[0]);
     free(a->msgs[0].text);
     free(a->msgs[0].reason);
     free(a->msgs);
@@ -196,6 +217,26 @@ static void case_fence_growth(void) {
     free_app(&full);
 }
 
+static void case_markdown(void) {
+    static const char *chunks[] = {
+        "# Head", "ing\n\nThis is **bo", "ld**, *it", "alic* and `co",
+        "de`.\n\n- one\n- t", "wo\n\n> quoted\n\n| a | b |\n|---",
+        "|---|\n\n```c\n", "int x = 1;\n```\n",
+        "[Docs](https://example.com)\n",
+    };
+    App inc;
+    App full;
+    new_app(&inc, NULL);
+    new_app(&full, NULL);
+    sync_layout(&inc, &full, 1);
+    for (unsigned i = 0; i < sizeof chunks / sizeof chunks[0]; i++) {
+        append_both(&inc, &full, chunks[i], 0);
+    }
+    finish_both(&inc, &full);
+    free_app(&inc);
+    free_app(&full);
+}
+
 int main(void) {
     case_text();
     case_long_line();
@@ -203,6 +244,7 @@ int main(void) {
     case_interleaved();
     case_empty_then_text();
     case_fence_growth();
+    case_markdown();
 
     printf(fails ? "FAILED: %d layout stream check(s)\n"
                  : "LAYOUT STREAM CHECKS OK\n",

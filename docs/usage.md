@@ -82,11 +82,15 @@ Model state and cache paths: [`models.md`](models.md).
 
 ## Rendering
 
+- Assistant replies are rendered as markdown: `**bold**`, `*italic*`,
+  `` `inline code` ``, `~~strike~~`, links (the label is shown, the URL is
+  hidden), ATX headings, bullet/ordered/task lists, blockquotes, tables, and
+  fenced code as a box.  The raw markdown stays in the message sent back to
+  the gateway; only the display buffer is transformed.
 - With a Nerd Font, the header draws `nf-fa-cat` (U+EEED) before `Meong`;
   `--no-nerd` or `MEONG_NO_NERD` drops just that glyph, while `--ascii` drops
   all non-ASCII chrome.
-- Code fences are rendered in a separate color; input supports UTF-8 and wide
-  characters.
+- Input supports UTF-8 and wide characters.
 - Reasoning rows use the `│` rail; the last row closes with `╰─`.
 
 ## Context and footer
