@@ -75,7 +75,9 @@ with no index/id starts a new slot unless it is an argument-only continuation.
 `chat.c` also owns tool display identity: a `role:"tool"` message stores its
 parent assistant index and call position, a pending permission row is filled in
 place instead of appended twice, and cancellation fills unanswered rows rather
-than leaving an empty result in the wire history.
+than leaving an empty result in the wire history. A tool round rebuilds layout
+from the last user message, so the assistant's mid-stream placeholder and gap
+rows are replaced by the compact final form.
 
 ## `src/tools/`
 
