@@ -46,6 +46,19 @@ void json_unescape(const char *s, int n, Buf *out);
  * the caller must fall back to jdoc_parse() (errors, odd shapes, malformed
  * input).  Spans point into the caller's frame and still need json_unescape().
  */
+#define JDELTA_MAX_TOOLS 8
+
+typedef struct {
+    const char *id;
+    const char *name;
+    const char *args;
+    int id_len;
+    int name_len;
+    int args_len;
+    int index;
+    unsigned char has_index;
+} JToolDelta;
+
 typedef struct {
     const char *content;
     const char *reason;
@@ -54,18 +67,15 @@ typedef struct {
     long long prompt_tokens;
     long long completion_tokens;
     long long cached_tokens;
-    const char *finish;
-    int finish_len;
-    const char *tool_args;
-    int tool_args_len;
-    int tool_index;
     unsigned char has_content;
     unsigned char has_reason;
     unsigned char has_ptok;
     unsigned char has_ctok;
     unsigned char has_cached;
-    unsigned char has_finish;
-    unsigned char has_tool_index;
+    unsigned char n_tools;
+    /* Last field: jdelta_scan() zeroes only the head, so a content-only
+     * frame does not pay for JDELTA_MAX_TOOLS empty slots. */
+    JToolDelta tools[JDELTA_MAX_TOOLS];
 } JDelta;
 
 int jdelta_scan(const char *text, size_t len, JDelta *out);

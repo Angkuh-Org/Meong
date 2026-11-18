@@ -167,10 +167,6 @@ static int build_chat_body(App *a, Buf *b, int *trimmed_out) {
 }
 
 static void stream_apply(App *a, const JDelta *fd) {
-    if (fd->has_finish && fd->finish && fd->finish_len == 10 &&
-        memcmp(fd->finish, "tool_calls", 10) == 0) {
-        a->gen_finish_tool = 1;
-    }
     if (fd->has_ptok && fd->prompt_tokens >= 0) {
         a->gen_ptok = (long)fd->prompt_tokens;
     }
@@ -202,17 +198,30 @@ static void stream_apply(App *a, const JDelta *fd) {
             msg_append_reason(m, a->stream_buf.p, a->stream_buf.len);
         }
     }
-    if (fd->has_tool_index || fd->tool_args_len > 0) {
-        buf_clear(&a->stream_buf);
-        if (fd->tool_args_len > 0) {
-            json_unescape(fd->tool_args, fd->tool_args_len, &a->stream_buf);
-        }
-        if (tool_accum_add(&a->tool_accum, fd->has_tool_index, fd->tool_index,
-                           NULL, 0, NULL, 0, a->stream_buf.p,
-                           a->stream_buf.len) != 0) {
-            snprintf(a->stream_err, sizeof a->stream_err,
-                     "tool call arguments are too large");
-            a->stream_failed = 1;
+    if (fd->n_tools > 0) {
+        for (int i = 0; i < (int)fd->n_tools; i++) {
+            const JToolDelta *t = &fd->tools[i];
+            buf_clear(&a->stream_tool_id);
+            buf_clear(&a->stream_tool_name);
+            buf_clear(&a->stream_buf);
+            if (t->id_len > 0) {
+                json_unescape(t->id, t->id_len, &a->stream_tool_id);
+            }
+            if (t->name_len > 0) {
+                json_unescape(t->name, t->name_len, &a->stream_tool_name);
+            }
+            if (t->args_len > 0) {
+                json_unescape(t->args, t->args_len, &a->stream_buf);
+            }
+            if (tool_accum_add(&a->tool_accum, t->has_index, t->index,
+                               a->stream_tool_id.p, a->stream_tool_id.len,
+                               a->stream_tool_name.p, a->stream_tool_name.len,
+                               a->stream_buf.p, a->stream_buf.len) != 0) {
+                snprintf(a->stream_err, sizeof a->stream_err,
+                         "tool call arguments are too large");
+                a->stream_failed = 1;
+                break;
+            }
         }
     }
 }
@@ -301,15 +310,6 @@ static int stream_apply_json(App *a, const char *data, size_t len) {
     int choices = jget(d, root, "choices");
     int c0 = jgeti(d, choices, 0);
     if (c0 >= 0) {
-        int fr = jget(d, c0, "finish_reason");
-        if (fr >= 0 && jtype(d, fr) == J_STRING) {
-            buf_clear(&a->stream_buf);
-            if (jstring(d, fr, &a->stream_buf) == 0) {
-                a->gen_finish_tool =
-                    a->stream_buf.p &&
-                    strcmp(a->stream_buf.p, "tool_calls") == 0;
-            }
-        }
         int delta = jget(d, c0, "delta");
         if (delta >= 0 && a->gen_idx >= 0 && a->gen_idx < a->nmsg) {
             Msg *m = &a->msgs[a->gen_idx];
@@ -375,7 +375,6 @@ int start_generation(App *a) {
     a->gen_ctok = 0;
     a->gen_cached = 0;
     a->gen_has_cached = 0;
-    a->gen_finish_tool = 0;
     tool_accum_reset(&a->tool_accum, strncmp(a->model, "cc/", 3) == 0);
     a->stream_err[0] = '\0';
     a->stream_failed = 0;
@@ -576,8 +575,8 @@ static void settle_tool_calls(App *a, int msg_idx) {
     }
 }
 
-/* TODO(mem): cold-path frame is ~6.8 KiB (spill[PATH_MAX] + err/ask + berr).
- * Move spill to the heap only if the main-thread stack budget matters. */
+/* Frame is 5,792 B at -O2 (-fstack-usage). The worst nested TUI path sums
+ * to 92,848 B (1.1% of the 8 MiB main-thread stack), so spill stays. */
 static int run_tool(App *a, const ToolCall *call, Buf *bounded, char *err,
                     size_t err_cap, double *sec, size_t *bytes,
                     long *lines) {

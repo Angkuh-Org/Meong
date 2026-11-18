@@ -570,6 +570,8 @@ static int tui_main(const Options *o) {
     int rc = tui_run(&a);
     jdoc_free(&a.stream_doc);
     buf_free(&a.stream_buf);
+    buf_free(&a.stream_tool_id);
+    buf_free(&a.stream_tool_name);
     msgs_clear(&a);
     models_clear(&a);
     free(a.model);

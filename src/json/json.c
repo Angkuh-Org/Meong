@@ -1,5 +1,6 @@
 #include "json.h"
 
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -36,6 +37,9 @@ static void build_skip(const jsmntok_t *t, int n, int *skip) {
 
 _Static_assert(sizeof(jsmntok_t) % sizeof(int) == 0,
                "skip storage must stay int-aligned after the token array");
+_Static_assert(sizeof(JDelta) ==
+                   offsetof(JDelta, tools) + sizeof(((JDelta *)0)->tools),
+               "tools must stay last: jdelta_scan zeroes only the head");
 
 /*
  * The fast delta path below handles the common SSE frame; this full parser
@@ -513,19 +517,16 @@ static int jscan_skip(JScan *s, int depth) {
 static int jscan_int_value(JScan *s, long long *out, unsigned char *has);
 
 /*
- * The common OpenAI tool-call frame carries one item whose arguments are the
- * next slice.  Accept only the shape that parse_tool_calls() maps 1:1 onto
- * tool_accum_add(): one item, no non-empty id/name, no second call.  Anything
- * else returns -1 so the caller reruns jsmn.
- *
- * TODO(perf): repeated non-empty id/name, multiple items, and index > 1e6
- * still take the jsmn fallback. Extend only with new differential cases in
- * tests/c/jdelta_test.c.
+ * The common OpenAI tool-call frame carries one or more items whose
+ * arguments are the next slice.  Accept the shape that parse_tool_calls()
+ * maps onto tool_accum_add(): index 0..INT_MAX, string id/name/arguments,
+ * and up to JDELTA_MAX_TOOLS non-empty items.  Anything else returns -1 so
+ * the caller reruns jsmn.
  */
 /* noinline: inlining both helpers grew jdelta_scan to 1,876 insn / 7.5 KiB
  * (417 ldp epilogues). Keep them outlined unless that is remeasured. */
 __attribute__((noinline))
-static int jscan_tool_function(JScan *s, JDelta *o) {
+static int jscan_tool_function(JScan *s, JToolDelta *t) {
     jscan_ws(s);
     if (s->i >= s->len || s->p[s->i] != '{') {
         return jscan_skip(s, 0);
@@ -553,13 +554,8 @@ static int jscan_tool_function(JScan *s, JDelta *o) {
         if (jscan_key_eq(k, kn, "name") && !seen_name) {
             seen_name = 1;
             if (s->i < s->len && s->p[s->i] == '"') {
-                const char *sp;
-                int sn;
-                if (jscan_string(s, &sp, &sn) != 0) {
+                if (jscan_string(s, &t->name, &t->name_len) != 0) {
                     return -1;
-                }
-                if (sn != 0) {
-                    return -1; /* a real name: jsmn path */
                 }
             } else if (jscan_skip(s, 0) != 0) {
                 return -1;
@@ -567,10 +563,85 @@ static int jscan_tool_function(JScan *s, JDelta *o) {
         } else if (jscan_key_eq(k, kn, "arguments") && !seen_args) {
             seen_args = 1;
             if (s->i < s->len && s->p[s->i] == '"') {
-                if (jscan_string(s, &o->tool_args, &o->tool_args_len) != 0) {
+                if (jscan_string(s, &t->args, &t->args_len) != 0) {
                     return -1;
                 }
             } else if (jscan_skip(s, 0) != 0) {
+                return -1;
+            }
+        } else if (jscan_skip(s, 0) != 0) {
+            return -1;
+        }
+        jscan_ws(s);
+        if (s->i >= s->len) {
+            return -1;
+        }
+        if (s->p[s->i] == ',') {
+            s->i++;
+            continue;
+        }
+        if (s->p[s->i] == '}') {
+            s->i++;
+            break;
+        }
+        return -1;
+    }
+    return 0;
+}
+
+__attribute__((noinline))
+static int jscan_tool_item(JScan *s, JToolDelta *t) {
+    jscan_ws(s);
+    if (s->i >= s->len || s->p[s->i] != '{') {
+        return -1;
+    }
+    s->i++;
+    jscan_ws(s);
+    if (s->i < s->len && s->p[s->i] == '}') {
+        s->i++;
+        return 0;
+    }
+    int seen_index = 0;
+    int seen_id = 0;
+    int seen_fn = 0;
+    for (;;) {
+        const char *k;
+        int kn;
+        if (jscan_string(s, &k, &kn) != 0) {
+            return -1;
+        }
+        jscan_ws(s);
+        if (s->i >= s->len || s->p[s->i] != ':') {
+            return -1;
+        }
+        s->i++;
+        jscan_ws(s);
+        if (jscan_key_eq(k, kn, "index") && !seen_index) {
+            seen_index = 1;
+            long long v = 0;
+            unsigned char has = 0;
+            if (jscan_int_value(s, &v, &has) != 0) {
+                return -1;
+            }
+            if (has && v >= 0) {
+                if (v > INT_MAX) {
+                    return -1;
+                }
+                t->index = (int)v;
+                t->has_index = 1;
+            }
+        } else if (jscan_key_eq(k, kn, "id") && !seen_id) {
+            seen_id = 1;
+            if (s->i < s->len && s->p[s->i] == '"') {
+                if (jscan_string(s, &t->id, &t->id_len) != 0) {
+                    return -1;
+                }
+            } else if (jscan_skip(s, 0) != 0) {
+                return -1;
+            }
+        } else if (jscan_key_eq(k, kn, "function") && !seen_fn) {
+            seen_fn = 1;
+            if (jscan_tool_function(s, t) != 0) {
                 return -1;
             }
         } else if (jscan_skip(s, 0) != 0) {
@@ -605,92 +676,33 @@ static int jscan_tool_fragment(JScan *s, JDelta *o) {
         s->i++;
         return 0;
     }
-    if (s->i >= s->len || s->p[s->i] != '{') {
-        return -1;
-    }
-    s->i++;
-    jscan_ws(s);
-    if (s->i < s->len && s->p[s->i] == '}') {
-        s->i++;
-    } else {
-        int seen_index = 0;
-        int seen_id = 0;
-        int seen_fn = 0;
-        for (;;) {
-            const char *k;
-            int kn;
-            if (jscan_string(s, &k, &kn) != 0) {
-                return -1;
-            }
-            jscan_ws(s);
-            if (s->i >= s->len || s->p[s->i] != ':') {
-                return -1;
-            }
-            s->i++;
-            jscan_ws(s);
-            if (jscan_key_eq(k, kn, "index") && !seen_index) {
-                seen_index = 1;
-                long long v = 0;
-                unsigned char has = 0;
-                if (jscan_int_value(s, &v, &has) != 0) {
-                    return -1;
-                }
-                if (has && v >= 0) {
-                    if (v > 1000000) {
-                        return -1;
-                    }
-                    o->tool_index = (int)v;
-                    o->has_tool_index = 1;
-                }
-            } else if (jscan_key_eq(k, kn, "id") && !seen_id) {
-                seen_id = 1;
-                if (s->i < s->len && s->p[s->i] == '"') {
-                    const char *sp;
-                    int sn;
-                    if (jscan_string(s, &sp, &sn) != 0) {
-                        return -1;
-                    }
-                    if (sn != 0) {
-                        return -1; /* a real id: jsmn path */
-                    }
-                } else if (jscan_skip(s, 0) != 0) {
-                    return -1;
-                }
-            } else if (jscan_key_eq(k, kn, "function") && !seen_fn) {
-                seen_fn = 1;
-                if (jscan_tool_function(s, o) != 0) {
-                    return -1;
-                }
-            } else if (jscan_skip(s, 0) != 0) {
-                return -1;
-            }
-            jscan_ws(s);
-            if (s->i >= s->len) {
-                return -1;
-            }
-            if (s->p[s->i] == ',') {
-                s->i++;
-                continue;
-            }
-            if (s->p[s->i] == '}') {
-                s->i++;
-                break;
-            }
+    for (;;) {
+        JToolDelta t;
+        memset(&t, 0, sizeof t);
+        if (jscan_tool_item(s, &t) != 0) {
             return -1;
         }
+        if (t.has_index || t.id_len > 0 || t.name_len > 0 || t.args_len > 0) {
+            if (o->n_tools >= JDELTA_MAX_TOOLS) {
+                return -1; /* more calls than JDelta carries: jsmn path */
+            }
+            o->tools[o->n_tools++] = t;
+        }
+        jscan_ws(s);
+        if (s->i >= s->len) {
+            return -1;
+        }
+        if (s->p[s->i] == ',') {
+            s->i++;
+            jscan_ws(s);
+            continue;
+        }
+        if (s->p[s->i] != ']') {
+            return -1;
+        }
+        s->i++;
+        return 0;
     }
-    jscan_ws(s);
-    if (s->i >= s->len) {
-        return -1;
-    }
-    if (s->p[s->i] == ',') {
-        return -1; /* more than one call in a delta: jsmn path */
-    }
-    if (s->p[s->i] != ']') {
-        return -1;
-    }
-    s->i++;
-    return 0;
 }
 
 static int jscan_delta(JScan *s, JDelta *o) {
@@ -806,7 +818,6 @@ static int jscan_choice(JScan *s, JDelta *o) {
         return 0;
     }
     int seen_delta = 0;
-    int seen_finish = 0;
     for (;;) {
         const char *k;
         int kn;
@@ -822,16 +833,6 @@ static int jscan_choice(JScan *s, JDelta *o) {
         if (jscan_key_eq(k, kn, "delta") && !seen_delta) {
             seen_delta = 1;
             if (jscan_delta(s, o) != 0) {
-                return -1;
-            }
-        } else if (jscan_key_eq(k, kn, "finish_reason") && !seen_finish) {
-            seen_finish = 1;
-            if (s->i < s->len && s->p[s->i] == '"') {
-                if (jscan_string(s, &o->finish, &o->finish_len) != 0) {
-                    return -1;
-                }
-                o->has_finish = 1;
-            } else if (jscan_skip(s, 0) != 0) {
                 return -1;
             }
         } else if (jscan_skip(s, 0) != 0) {
@@ -1028,11 +1029,13 @@ static int jscan_usage(JScan *s, JDelta *o) {
 /*
  * Fast path contract: every field stream_apply() reads (content, reason,
  * prompt_tokens, completion_tokens, prompt_tokens_details.cached_tokens,
- * finish, and one argument-only tool-call fragment) must be mirrored here;
- * a field this scanner ignores becomes silently absent on the fast path.
+ * and the tool_calls items) must be mirrored here; a field this scanner
+ * ignores becomes silently absent on the fast path.
  */
 int jdelta_scan(const char *text, size_t len, JDelta *out) {
-    memset(out, 0, sizeof *out);
+    /* tools[] is written only up to n_tools; zeroing the head keeps a
+     * content-only frame from touching JDELTA_MAX_TOOLS slots. */
+    memset(out, 0, offsetof(JDelta, tools));
     if (len > 0 && memchr(text, '\0', len)) {
         return -1;
     }

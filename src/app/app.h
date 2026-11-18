@@ -13,7 +13,7 @@
 
 #define APP_NAME "Meong"
 #ifndef APP_VERSION
-#define APP_VERSION "0.11.1"
+#define APP_VERSION "0.11.2"
 #endif
 #define DEFAULT_MODEL "cc/deepseek/deepseek-v4.1-flash"
 
@@ -141,6 +141,8 @@ typedef struct {
     Stream *stream;
     JDoc stream_doc;
     Buf stream_buf;
+    Buf stream_tool_id;
+    Buf stream_tool_name;
     int streaming;
     int gen_idx;
     double gen_start;
@@ -149,9 +151,6 @@ typedef struct {
     long gen_ctok;
     long gen_cached;
     unsigned char gen_has_cached;
-    /* TODO(dead): written by stream_apply/stream_apply_json, never read;
-     * finish_generation keys on m->ncalls. Remove it or wire a consumer. */
-    int gen_finish_tool;
     ToolAccum tool_accum;
     int tool_round;
     int tool_msg_idx;

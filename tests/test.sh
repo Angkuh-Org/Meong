@@ -66,6 +66,13 @@ $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
 ok "json: cached skip matches the recursive walk"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
+    -o "$TMP/utf8_cols_test" tests/c/utf8_cols_test.c src/util/util.c \
+    || fail "utf8 cols test did not compile"
+"$TMP/utf8_cols_test" >/dev/null \
+    || fail "utf8 column helpers disagree with wcwidth"
+ok "util: utf8 columns and tail stay on codepoint boundaries"
+
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/jdelta_test" tests/c/jdelta_test.c src/json/json.c \
     src/chat/tool_accum.c src/util/util.c \
     || fail "jdelta test did not compile"
@@ -604,6 +611,21 @@ if command -v tmux >/dev/null 2>&1; then
     done
     [ "$spin_changed" = 1 ] || fail "spinner glyph never changed"
     ok "status spinner rotates with a stable layout"
+    header=$(tmux capture-pane -p -t "$TMUX_SESS" | head -1)
+    case "$header" in
+        *streaming*) ;;
+        *) fail "streaming header lost its status" ;;
+    esac
+    width=$(printf '%s\n' "$header" | python3 -c '
+import sys
+sys.path.insert(0, "tests/python")
+from panel_attr import screen
+rows = screen(sys.stdin.read())
+print(len("".join(ch for ch, _ in rows[0]).rstrip()))
+')
+    [ "$width" = 109 ] \
+        || fail "streaming header ends at $width columns, want 109"
+    ok "streaming header keeps its right edge at cols-2"
     tmux send-keys -t "$TMUX_SESS" C-c
     tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
     TMUX_SESS=""

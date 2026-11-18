@@ -61,7 +61,6 @@ void msgs_clear(App *a) {
     a->tool_allow_all = 0;
     a->tool_call_pos = 0;
     a->tool_msg_idx = -1;
-    a->gen_finish_tool = 0;
     tool_accum_clear(&a->tool_accum);
     a->have_gen_stats = 0;
     a->last_failed = 0;

@@ -29,6 +29,8 @@ char *xstrdup(const char *s);
 double now_sec(void);
 int utf8_next(const char *s, size_t n, wchar_t *out);
 int utf8_encode(wchar_t wc, char out[4]);
+int utf8_cols(const char *s);
+size_t utf8_tail(const char *s, int cols);
 char *wcs_to_utf8(const wchar_t *s, size_t n);
 int str_contains_ci(const char *hay, const char *needle);
 int str_ieq(const char *a, const char *b);
