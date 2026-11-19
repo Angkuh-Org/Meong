@@ -37,6 +37,7 @@ meong --oneshot 'hello' \
   --model cc/deepseek/deepseek-v4.1-flash      # one reply, then exit
 meong --stream --oneshot 'hello' \
   --model cc/deepseek/deepseek-v4.1-flash      # print tokens as they arrive
+meong --effort high                            # thinking effort: off..max
 meong --list-models                            # one prefixed model id per line
 ```
 

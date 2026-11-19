@@ -12,6 +12,41 @@ void *xcalloc(size_t n, size_t sz) {
     return p;
 }
 
+/* Canonical pointers: App.effort holds one of these or "" and the picker
+ * compares addresses instead of calling strcmp six times. */
+const char *const EFFORT_LEVELS[EFFORT_COUNT] = {
+    "off", "low", "medium", "high", "xhigh", "max",
+};
+
+/* rejected: a leaf ASCII-fold compare measured 416 B / 0 B frame against
+ * 384 B / 80 B here; this runs at startup and on an accepted pick only. */
+const char *effort_canon(const char *s) {
+    if (!s) {
+        return NULL;
+    }
+    char tmp[16];
+    size_t n = 0;
+    while (*s == ' ' || *s == '\t') {
+        s++;
+    }
+    while (*s && n + 1 < sizeof tmp) {
+        tmp[n++] = (char)tolower((unsigned char)*s++);
+    }
+    while (n > 0 && (tmp[n - 1] == ' ' || tmp[n - 1] == '\t')) {
+        n--;
+    }
+    tmp[n] = '\0';
+    if (strcmp(tmp, "default") == 0 || strcmp(tmp, "auto") == 0) {
+        return "";
+    }
+    for (int i = 0; i < EFFORT_COUNT; i++) {
+        if (strcmp(tmp, EFFORT_LEVELS[i]) == 0) {
+            return EFFORT_LEVELS[i];
+        }
+    }
+    return NULL;
+}
+
 char *join_path(const char *dir, const char *name) {
     Buf b;
     buf_init(&b);

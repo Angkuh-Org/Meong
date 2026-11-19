@@ -90,6 +90,15 @@ $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
 ok "app: msg_release clears the message and is idempotent"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
+    -o "$TMP/state_test" \
+    tests/c/state_test.c src/app/state.c src/app/app.c \
+    src/chat/tool_accum.c src/ui/md.c src/util/util.c \
+    || fail "state test did not compile"
+"$TMP/state_test" >/dev/null \
+    || fail "state file lost model or effort"
+ok "state: model and effort round-trip without clobbering"
+
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/markdown_test" \
     tests/c/markdown_test.c src/app/app.c src/chat/tool_accum.c \
     src/ui/md.c src/util/util.c \
@@ -192,6 +201,33 @@ out=$("$BIN" --url "$URL" --model mock/plain --oneshot 'hi') \
     || fail "oneshot failed"
 [ "$out" = "pong from mock" ] || fail "oneshot output: $out"
 ok "oneshot"
+
+out=$("$BIN" --url "$URL" --model mock/effort --oneshot 'hi') \
+    || fail "effort baseline failed"
+[ "$out" = "effort=none" ] || fail "unset effort leaked: $out"
+
+out=$("$BIN" --url "$URL" --model mock/effort --effort high --oneshot 'hi') \
+    || fail "effort flag failed"
+[ "$out" = "effort=high" ] || fail "effort flag wire: $out"
+
+out=$(MEONG_EFFORT=low "$BIN" --url "$URL" --model mock/effort \
+    --oneshot 'hi') || fail "effort env failed"
+[ "$out" = "effort=low" ] || fail "effort env wire: $out"
+
+out=$(MEONG_EFFORT=medium "$BIN" --url "$URL" --model mock/effort \
+    --effort default --oneshot 'hi') || fail "effort default failed"
+[ "$out" = "effort=none" ] || fail "explicit default leaked: $out"
+
+out=$("$BIN" --url "$URL" --model mock/effort --effort xhigh --stream \
+    --oneshot 'hi') || fail "stream effort failed"
+[ "$out" = "effort=xhigh" ] || fail "stream effort wire: $out"
+
+if "$BIN" --effort turbo --oneshot hi >/dev/null 2>"$TMP/err"; then
+    fail "invalid effort returned success"
+fi
+grep -Fq -e '--effort must be' "$TMP/err" \
+    || fail "invalid effort message missing"
+ok "thinking effort: flag, env, default, stream and validation"
 
 out=$("$BIN" --url "$URL" --model mock/split --stream --oneshot 'hi') \
     || fail "stream failed"
@@ -470,6 +506,189 @@ if command -v tmux >/dev/null 2>&1; then
         || fail "queued prompt is not above the composer"
     ok "composer stays editable, queue sits above the box"
     tmux send-keys -t "$TMUX_SESS" C-c
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    TMUX_SESS="Meong-effort-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 110 -y 40 -c "$PWD" \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config-effort' \
+         XDG_CACHE_HOME='$TMP/cache-effort' \
+         '$BIN_ABS' --url '$URL' --model mock/plain"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" '/model'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'choose a model'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'effort'
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'filter effort'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'choose thinking effort'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" |
+        grep -Fq 'choose thinking effort' \
+        || fail "picking a model did not open the effort picker"
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'default' \
+        || fail "effort picker lost the default row"
+    tmux send-keys -t "$TMUX_SESS" Down Down Down Down
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'thinking effort high'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'thinking effort high' \
+        || fail "effort picker did not apply high"
+    tmux send-keys -l -t "$TMUX_SESS" 'hello'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'effort=high'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'effort=high' \
+        || fail "TUI request omitted reasoning_effort"
+    tmux send-keys -l -t "$TMUX_SESS" '/effort'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'choose thinking effort'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -t "$TMUX_SESS" Escape
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if ! tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'choose thinking effort'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    if tmux capture-pane -p -t "$TMUX_SESS" |
+        grep -Fq 'choose thinking effort'; then
+        fail "escape did not close the effort picker"
+    fi
+    tmux send-keys -l -t "$TMUX_SESS" '/effort medium'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'thinking effort medium'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq 'thinking effort medium' \
+        || fail "/effort level did not apply directly"
+    tmux send-keys -t "$TMUX_SESS" F2
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Eq '│  effort +medium'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Eq '│  effort +medium' \
+        || fail "model card does not show the thinking effort"
+    printf '%s\n' "$pane" | grep -Fq 'reasoning' \
+        || fail "model card lost its capability rows"
+    ok "effort: model picker chains into the effort picker"
+    tmux send-keys -t "$TMUX_SESS" Escape
+    sleep 0.2
+    tmux capture-pane -e -p -t "$TMUX_SESS" >"$TMP/footer.ansi"
+    python3 - "$TMP/footer.ansi" <<'PY' || fail "footer effort label"
+import sys
+sys.path.insert(0, "tests/python")
+from panel_attr import cells
+
+rows = cells(open(sys.argv[1], encoding="utf-8").read())
+line = next(row for row in reversed(rows) if row)
+text = "".join(ch for ch, _, _ in line)
+mi = text.find("mock/effort")
+ei = text.find("medium")
+if mi < 0 or ei < 0:
+    sys.exit(f"footer text: {text!r}")
+if ei <= mi:
+    sys.exit("footer effort is not after the model")
+if line[mi][1] != 154:
+    sys.exit(f"footer model fg={line[mi][1]}, want 154")
+if line[ei][1] != 208:
+    sys.exit(f"footer effort fg={line[ei][1]}, want 208")
+print(f"footer: model fg=154, effort fg=208, text={text!r}")
+PY
+    ok "footer shows the effort in orange next to the model"
+    footer=$(tmux capture-pane -p -t "$TMUX_SESS" | tail -1)
+    ex=$(printf '%s\n' "$footer" | awk '{print index($0,"medium")}')
+    [ "$ex" -gt 0 ] || fail "footer effort label is missing"
+    rows=$(tmux display-message -p -t "$TMUX_SESS" '#{pane_height}')
+    tmux send-keys -l -t "$TMUX_SESS" \
+        "$(printf '\033[<0;%d;%dM' "$ex" "$rows")"
+    tmux send-keys -l -t "$TMUX_SESS" \
+        "$(printf '\033[<0;%d;%dm' "$ex" "$rows")"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'choose thinking effort'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq 'choose thinking effort' \
+        || fail "clicking the footer effort did not open the picker"
+    printf '%s\n' "$pane" | grep -Eq '› medium' \
+        || fail "clicking the footer effort lost the current level"
+    tmux send-keys -t "$TMUX_SESS" Escape
+    ok "clicking the footer effort opens the effort picker"
     tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
     TMUX_SESS=""
 

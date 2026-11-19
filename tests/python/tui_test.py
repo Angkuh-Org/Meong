@@ -182,6 +182,11 @@ def main():
         s.send(b"\r")
         if not s.wait_for("model mock/plain", 5):
             fail("model selection did not apply", s)
+        if not s.wait_for("choose thinking effort", 5):
+            fail("effort picker did not follow the model picker", s)
+        s.send(b"\r")
+        if not s.wait_for("thinking effort default", 5):
+            fail("effort picker did not apply default", s)
         s.send(b"/quit\r")
         if not s.wait_exit(6):
             fail("TUI did not exit on /quit", s)
@@ -431,7 +436,10 @@ def main():
         s.read(0.3)
         tail = clean(s.buf)
         note_at = tail.rfind(b"model mock/tinyctx")
-        ctx_at = tail.rfind(b"ctx ")
+        ctx_at = -1
+        for m in re.finditer(rb"(?:ctx (?:<1%|[0-9]+%?)|context trimmed)",
+                             tail):
+            ctx_at = m.start()
         if note_at >= 0 and ctx_at > note_at:
             fail("stale ctx survived a model switch", s)
         s.send(b"/quit\r")
@@ -561,7 +569,11 @@ def main():
         if not s.wait_picker_highlight():
             fail("no-color picker selection is not highlighted", s)
         s.send(b"\r")
-        time.sleep(0.2)
+        if not s.wait_for("choose thinking effort"):
+            fail("ascii effort picker did not follow the model picker", s)
+        s.send(b"\r")
+        if not s.wait_for("thinking effort default"):
+            fail("ascii effort picker did not apply default", s)
         s.send(b"/quit\r")
         if not s.wait_exit(6):
             fail("ascii TUI did not exit", s)

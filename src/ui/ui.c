@@ -78,6 +78,7 @@ static void init_pairs(void) {
         init_pair(P_CHIP_MISTRAL, C_ACCENT, C_SURFACE);
         init_pair(P_CHIP_OTHER, C_ACCENT, C_SURFACE);
         init_pair(P_ERR, C_ERR, C_BASE);
+        init_pair(P_EFFORT, C_WARN, C_BASE);
     } else {
         init_pair(P_BASE, COLOR_WHITE, -1);
         init_pair(P_USER, COLOR_GREEN, -1);
@@ -109,6 +110,7 @@ static void init_pairs(void) {
         init_pair(P_CHIP_MISTRAL, COLOR_BLACK, COLOR_GREEN);
         init_pair(P_CHIP_OTHER, COLOR_BLACK, COLOR_GREEN);
         init_pair(P_ERR, COLOR_RED, -1);
+        init_pair(P_EFFORT, COLOR_YELLOW, -1);
     }
 }
 
@@ -838,6 +840,14 @@ static void draw_footer(App *a, int rows, int cols, int slash) {
             hint = cols < 64 ? "up/down | enter"
                              : "up/down choose | enter complete | esc close";
         }
+    } else if (a->effort_open) {
+        if (a->unicode) {
+            hint = cols < 64 ? "↑↓ | enter | esc"
+                             : "↑↓ choose | enter apply | esc keep";
+        } else {
+            hint = cols < 64 ? "up/down | enter | esc"
+                             : "up/down choose | enter apply | esc keep";
+        }
     } else if (a->streaming) {
         hint = "enter queue | ctrl-c cancel";
     } else {
@@ -934,18 +944,33 @@ static void draw_footer(App *a, int rows, int cols, int slash) {
             mvaddstr(y, cols - 1 - rl, right);
         }
     }
-    /* Second footer line: the full model id owns the model-card click. */
+    /* Second footer line: the model id, then the orange effort label. */
     if (a->model && a->model[0]) {
         int my = rows - 1;
+        const char *eff = effort_str(a);
+        if (!eff[0]) {
+            eff = "default";
+        }
+        int elen = (int)strlen(eff);
+        int gap = 2;
+        int avail = cols - 2 - gap - elen;
+        if (avail < 1) {
+            avail = 1;
+        }
         int mw = (int)strlen(a->model);
-        if (mw > cols - 2) {
-            mw = cols - 2;
+        if (mw > avail) {
+            mw = avail;
         }
         wattrset(stdscr, pair_attr(a, P_ACCENT));
         mvaddnstr(my, 1, a->model, mw);
+        wattrset(stdscr, pair_attr(a, P_EFFORT));
+        mvaddstr(my, 1 + mw + gap, eff);
         a->model_y = my;
         a->model_x0 = 1;
         a->model_x1 = 1 + mw;
+        a->effort_y = my;
+        a->effort_x0 = 1 + mw + gap;
+        a->effort_x1 = a->effort_x0 + elen;
     }
 }
 
@@ -966,6 +991,9 @@ void ui_draw(App *a) {
     a->model_y = -1;
     a->model_x0 = -1;
     a->model_x1 = -1;
+    a->effort_y = -1;
+    a->effort_x0 = -1;
+    a->effort_x1 = -1;
     a->model_py0 = -1;
     a->model_py1 = -1;
     a->model_px0 = -1;
@@ -984,6 +1012,7 @@ void ui_draw(App *a) {
     if (rows < UI_MIN_ROWS || cols < UI_MIN_COLS) {
         a->help_open = 0;
         a->picker_open = 0;
+        a->effort_open = 0;
         a->pet_open = 0;
         a->model_open = 0;
         const char *msg = "terminal too small";
@@ -1010,6 +1039,8 @@ void ui_draw(App *a) {
     draw_footer(a, rows, cols, slash_n > 0);
     if (a->picker_open) {
         picker_draw(a, rows, cols);
+    } else if (a->effort_open) {
+        effort_picker_draw(a, rows, cols);
     } else if (a->help_open) {
         help_draw(a, rows, cols);
     } else if (a->pet_open) {

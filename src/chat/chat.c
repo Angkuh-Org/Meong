@@ -81,6 +81,11 @@ static int build_chat_body(App *a, Buf *b, int *trimmed_out) {
     buf_adds(b, "{\"model\":");
     buf_json_str(b, a->model, strlen(a->model));
     buf_adds(b, ",\"stream\":true");
+    const char *effort = effort_str(a);
+    if (effort[0]) {
+        buf_adds(b, ",\"reasoning_effort\":");
+        buf_json_str(b, effort, strlen(effort));
+    }
     if (use_tools) {
         buf_adds(b, ",\"tools\":");
         buf_adds(b, tools_json());

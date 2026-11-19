@@ -7,6 +7,7 @@ typedef struct {
     const char *url;
     const char *model;
     const char *system;
+    const char *effort;
     const char *oneshot;
     int stream;
     int list_models;

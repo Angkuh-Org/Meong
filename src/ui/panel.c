@@ -118,6 +118,7 @@ void picker_open(App *a) {
     a->help_open = 0;
     a->pet_open = 0;
     a->model_open = 0;
+    a->effort_open = 0;
     a->picker_filter[0] = '\0';
     a->picker_filter_len = 0;
     a->picker_sel = 0;
@@ -138,6 +139,92 @@ void picker_open(App *a) {
 void picker_close(App *a) {
     a->picker_open = 0;
     a->dirty = 1;
+}
+
+#define EFFORT_OPTIONS (EFFORT_COUNT + 1)
+
+static const char *effort_option(int i) {
+    return i == 0 ? "default" : EFFORT_LEVELS[i - 1];
+}
+
+static int effort_index(const App *a) {
+    for (int i = 0; i < EFFORT_COUNT; i++) {
+        if (a->effort == EFFORT_LEVELS[i]) {
+            return i + 1;
+        }
+    }
+    return 0;
+}
+
+void effort_picker_open(App *a) {
+    a->effort_open = 1;
+    a->effort_sel = effort_index(a);
+    a->help_open = 0;
+    a->picker_open = 0;
+    a->pet_open = 0;
+    a->model_open = 0;
+    a->dirty = 1;
+}
+
+void effort_picker_close(App *a) {
+    a->effort_open = 0;
+    a->dirty = 1;
+}
+
+void effort_picker_move(App *a, int dir) {
+    int sel = a->effort_sel + dir;
+    if (sel < 0) {
+        sel = 0;
+    } else if (sel >= EFFORT_OPTIONS) {
+        sel = EFFORT_OPTIONS - 1;
+    }
+    if (sel != a->effort_sel) {
+        a->effort_sel = sel;
+        a->dirty = 1;
+    }
+}
+
+void effort_picker_accept(App *a) {
+    const char *choice = effort_option(a->effort_sel);
+    a->effort_open = 0;
+    a->dirty = 1;
+    set_effort(a, choice);
+}
+
+void effort_picker_draw(App *a, int rows, int cols) {
+    int w = cols - 4;
+    if (w > 34) {
+        w = 34;
+    }
+    if (w < 30) {
+        return;
+    }
+    int h = EFFORT_OPTIONS + 2;
+    if (rows < h + 1) {
+        return;
+    }
+    int px = (cols - w) / 2;
+    int py = (rows - h) / 2;
+    panel_frame(a, px, py, w, h, " choose thinking effort ", 1);
+    for (int i = 0; i < EFFORT_OPTIONS; i++) {
+        int y = py + 1 + i;
+        int sel = i == a->effort_sel;
+        if (sel) {
+            attr_t sa = a->color ? pair_attr(a, P_SEL) : (attr_t)A_REVERSE;
+            wattrset(stdscr, sa);
+            mvhline(y, px + 1, ' ', w - 2);
+            wattrset(stdscr, sa | A_BOLD);
+            mvaddstr(y, px + 2, a->unicode ? "› " : "> ");
+            mvaddstr(y, px + 4, effort_option(i));
+        } else {
+            wattrset(stdscr, pair_attr(a, P_PANEL));
+            mvhline(y, px + 1, ' ', w - 2);
+            wattrset(stdscr, pair_attr(a, P_PANEL_ACCENT));
+            mvaddstr(y, px + 2, "  ");
+            mvaddstr(y, px + 4, effort_option(i));
+        }
+    }
+    a->cursor_on = 0;
 }
 
 void picker_draw(App *a, int rows, int cols) {
@@ -276,8 +363,8 @@ void help_draw(App *a, int rows, int cols) {
         w = 72;
     }
     int h = rows - 4;
-    if (h > 24) {
-        h = 24;
+    if (h > 26) {
+        h = 26;
     }
     if (w < 30 || h < 10) {
         return;
@@ -290,6 +377,7 @@ void help_draw(App *a, int rows, int cols) {
         "  /model [id]    pick a model, or switch directly",
         "  /models        refresh the gateway model list",
         "  /system [p]    show, set, or clear ('off') the system prompt",
+        "  /effort [lvl]  pick or set the thinking effort",
         "  /clear         forget the conversation",
         "  /retry         regenerate the last answer",
         "  /help          this panel",

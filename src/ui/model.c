@@ -89,6 +89,7 @@ void model_info_open(App *a) {
     a->pet_open = 0;
     a->help_open = 0;
     a->picker_open = 0;
+    a->effort_open = 0;
     a->dirty = 1;
 }
 
@@ -102,6 +103,10 @@ static void append_name(char *buf, size_t cap, const char *name) {
 
 void model_info_draw(App *a, int rows, int cols) {
     const ModelCaps *caps = model_caps_for(a, a->model);
+    const char *eff = effort_str(a);
+    if (!eff[0]) {
+        eff = "default";
+    }
     int w = cols - 2;
     if (w > 58) {
         w = 58;
@@ -145,6 +150,7 @@ void model_info_draw(App *a, int rows, int cols) {
         if (caps->in_cost >= 0 || caps->out_cost >= 0) {
             nrows++;
         }
+        nrows++; /* effort is a client setting, always shown */
         if (caps->vision < 0) {
             append_name(missing, sizeof missing, "vision");
         }
@@ -160,7 +166,7 @@ void model_info_draw(App *a, int rows, int cols) {
     }
     int h = reported
                 ? nrows + 6 + (flags_missing ? 1 : 0) + (caps->estimated ? 1 : 0)
-                : 10;
+                : 11;
     if (h > rows - 2) {
         h = rows - 2;
     }
@@ -198,7 +204,9 @@ void model_info_draw(App *a, int rows, int cols) {
         wattrset(stdscr, pair_attr(a, P_PANEL_DIM));
         if (y < ymax) {
             mvaddnstr(y, x, "run /models to refresh the catalogue", width);
+            y++;
         }
+        y = info_row(a, y, ymax, x, "effort", eff, width);
         a->cursor_on = 0;
         return;
     }
@@ -229,6 +237,7 @@ void model_info_draw(App *a, int rows, int cols) {
         y = info_row(a, y, ymax, x, "reasoning", yes_no(caps->reasoning),
                      width);
     }
+    y = info_row(a, y, ymax, x, "effort", eff, width);
     if (caps->prompt_caching >= 0) {
         y = info_row(a, y, ymax, x, "prompt cache",
                      yes_no(caps->prompt_caching), width);
