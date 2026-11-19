@@ -23,6 +23,7 @@
 #define FALLBACK_MAX (1u << 20)
 
 enum {
+    ST_CONNECT,
     ST_SEND,
     ST_HEADERS,
     ST_BODY,
@@ -61,9 +62,12 @@ struct Stream {
     void *ud;
     double t_start;
     double t_last;
+    double t_connect;
     int idle_timeout_ms;
     char content_type[160];
     char err[512];
+    struct addrinfo *ai;
+    struct addrinfo *ai_cur;
     Endpoint ep;
 };
 
@@ -82,6 +86,11 @@ static void set_error(Stream *s, const char *fmt, ...) {
     if (s->fd >= 0) {
         close(s->fd);
         s->fd = -1;
+    }
+    if (s->ai) {
+        freeaddrinfo(s->ai);
+        s->ai = NULL;
+        s->ai_cur = NULL;
     }
 }
 
@@ -215,55 +224,108 @@ int endpoint_parse(const char *url, Endpoint *ep, char *err, size_t errlen) {
     return 0;
 }
 
-static int open_connection(const Endpoint *ep, char *err, size_t errlen) {
+/* TODO(perf): getaddrinfo() is still synchronous, so a slow DNS lookup can
+ * delay send_text before the chat request reaches stream_tick. */
+static int resolve_host(const Endpoint *ep, struct addrinfo **res, char *err,
+                        size_t errlen) {
     struct addrinfo hints;
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     char portstr[16];
     snprintf(portstr, sizeof portstr, "%d", ep->port);
-    struct addrinfo *res = NULL;
-    int gai = getaddrinfo(ep->host, portstr, &hints, &res);
+    int gai = getaddrinfo(ep->host, portstr, &hints, res);
     if (gai != 0) {
         snprintf(err, errlen, "resolve %s: %s", ep->host, gai_strerror(gai));
         return -1;
     }
+    return 0;
+}
+
+/* Start one non-blocking connect. Returns 0 with *pending set when the
+ * handshake is still in flight, or -1 with errno from the failed address. */
+static int connect_addr(const struct addrinfo *ai, int *fd_out, int *pending) {
+    int fd = socket(ai->ai_family,
+                    ai->ai_socktype | SOCK_NONBLOCK | SOCK_CLOEXEC,
+                    ai->ai_protocol);
+    if (fd < 0) {
+        return -1;
+    }
+    static const int one = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
+    int r = connect(fd, ai->ai_addr, ai->ai_addrlen);
+    if (r == 0) {
+        *fd_out = fd;
+        *pending = 0;
+        return 0;
+    }
+    if (errno == EINPROGRESS || errno == EINTR) {
+        *fd_out = fd;
+        *pending = 1;
+        return 0;
+    }
+    int saved = errno;
+    close(fd);
+    errno = saved;
+    return -1;
+}
+
+/* Try the addresses starting at ai. On success the Stream owns fd and either
+ * keeps the addrinfo list (ST_CONNECT) or frees it (ST_SEND). */
+static int try_connect_addr(Stream *s, struct addrinfo *ai) {
+    for (; ai; ai = ai->ai_next) {
+        int fd, pending;
+        if (connect_addr(ai, &fd, &pending) != 0) {
+            continue;
+        }
+        s->fd = fd;
+        s->ai_cur = ai;
+        s->t_connect = now_sec();
+        s->state = pending ? ST_CONNECT : ST_SEND;
+        if (!pending) {
+            if (s->ai) {
+                freeaddrinfo(s->ai);
+            }
+            s->ai = NULL;
+            s->ai_cur = NULL;
+        }
+        return 0;
+    }
+    return -1;
+}
+
+static int open_connection(const Endpoint *ep, char *err, size_t errlen) {
+    struct addrinfo *res = NULL;
+    if (resolve_host(ep, &res, err, errlen) != 0) {
+        return -1;
+    }
     int saved = ECONNREFUSED;
     for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
-        int fd = socket(ai->ai_family,
-                        ai->ai_socktype | SOCK_NONBLOCK | SOCK_CLOEXEC,
-                        ai->ai_protocol);
-        if (fd < 0) {
+        int fd, pending;
+        if (connect_addr(ai, &fd, &pending) != 0) {
             saved = errno;
             continue;
         }
-        int one = 1;
-        setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
-        int r = connect(fd, ai->ai_addr, ai->ai_addrlen);
-        if (r == 0) {
+        if (!pending) {
             freeaddrinfo(res);
             return fd;
         }
-        if (errno == EINPROGRESS) {
-            struct pollfd pfd;
-            pfd.fd = fd;
-            pfd.events = POLLOUT;
-            pfd.revents = 0;
-            int pr = poll(&pfd, 1, 700);
-            if (pr > 0) {
-                int soerr = 0;
-                socklen_t sl = sizeof soerr;
-                if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &sl) == 0 &&
-                    soerr == 0) {
-                    freeaddrinfo(res);
-                    return fd;
-                }
-                saved = soerr ? soerr : ECONNREFUSED;
-            } else if (pr == 0) {
-                saved = ETIMEDOUT;
-            } else {
-                saved = errno;
+        struct pollfd pfd;
+        pfd.fd = fd;
+        pfd.events = POLLOUT;
+        pfd.revents = 0;
+        int pr = poll(&pfd, 1, 700);
+        if (pr > 0) {
+            int soerr = 0;
+            socklen_t sl = sizeof soerr;
+            if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &sl) == 0 &&
+                soerr == 0) {
+                freeaddrinfo(res);
+                return fd;
             }
+            saved = soerr ? soerr : ECONNREFUSED;
+        } else if (pr == 0) {
+            saved = ETIMEDOUT;
         } else {
             saved = errno;
         }
@@ -307,11 +369,8 @@ static void build_request(Stream *s, const Endpoint *ep, const char *method,
     }
 }
 
-int stream_start(Stream **out, const Endpoint *ep, const char *method,
-                 const char *path, const char *body, size_t body_len,
-                 int expect_sse, sse_cb cb, void *ud, int idle_timeout_ms,
-                 char *err, size_t errlen) {
-    *out = NULL;
+static Stream *stream_new(const Endpoint *ep, int expect_sse, sse_cb cb,
+                          void *ud, int idle_timeout_ms) {
     Stream *s = xmalloc(sizeof *s);
     memset(s, 0, sizeof *s);
     s->fd = -1;
@@ -328,14 +387,50 @@ int stream_start(Stream **out, const Endpoint *ep, const char *method,
     buf_init(&s->body);
     buf_init(&s->line);
     buf_init(&s->fallback);
+    return s;
+}
 
+int stream_start(Stream **out, const Endpoint *ep, const char *method,
+                 const char *path, const char *body, size_t body_len,
+                 int expect_sse, sse_cb cb, void *ud, int idle_timeout_ms,
+                 char *err, size_t errlen) {
+    *out = NULL;
+    Stream *s = stream_new(ep, expect_sse, cb, ud, idle_timeout_ms);
+    build_request(s, ep, method, path, body, body_len);
     s->fd = open_connection(ep, err, errlen);
     if (s->fd < 0) {
         stream_free(s);
         return -1;
     }
-    build_request(s, ep, method, path, body, body_len);
     s->state = ST_SEND;
+    s->t_start = now_sec();
+    s->t_last = s->t_start;
+    *out = s;
+    return 0;
+}
+
+/* Same request, but the TCP handshake is finished by stream_tick. Only the
+ * title stream needs this today: it must not delay the chat request. */
+int stream_start_async(Stream **out, const Endpoint *ep, const char *method,
+                       const char *path, const char *body, size_t body_len,
+                       int expect_sse, sse_cb cb, void *ud, int idle_timeout_ms,
+                       char *err, size_t errlen) {
+    *out = NULL;
+    Stream *s = stream_new(ep, expect_sse, cb, ud, idle_timeout_ms);
+    build_request(s, ep, method, path, body, body_len);
+    struct addrinfo *res = NULL;
+    if (resolve_host(ep, &res, err, errlen) != 0) {
+        stream_free(s);
+        return -1;
+    }
+    s->ai = res;
+    if (try_connect_addr(s, res) != 0) {
+        int saved = errno;
+        snprintf(err, errlen, "connect %s:%d: %s", ep->host, ep->port,
+                 strerror(saved));
+        stream_free(s);
+        return -1;
+    }
     s->t_start = now_sec();
     s->t_last = s->t_start;
     *out = s;
@@ -698,6 +793,57 @@ static void finish_eof(Stream *s) {
     set_done(s);
 }
 
+/* Finish a non-blocking connect. 1 = connected, 0 = still in flight,
+ * -1 = error. Kept out of stream_tick so the send/body path stays small. */
+static __attribute__((noinline, cold)) int tick_connect(Stream *s, double now) {
+    struct pollfd pfd;
+    pfd.fd = s->fd;
+    pfd.events = POLLOUT;
+    pfd.revents = 0;
+    int pr = poll(&pfd, 1, 0);
+    if (pr < 0) {
+        if (errno == EINTR) {
+            return 0;
+        }
+        set_error(s, "connect: %s", strerror(errno));
+        return -1;
+    }
+    if (pr == 0) {
+        if (now - s->t_connect > 0.7) {
+            close(s->fd);
+            s->fd = -1;
+            if (try_connect_addr(s, s->ai_cur ? s->ai_cur->ai_next : NULL) ==
+                0) {
+                return s->state == ST_SEND ? 1 : 0;
+            }
+            set_error(s, "connect %s:%d: timed out", s->ep.host, s->ep.port);
+            return -1;
+        }
+        return 0;
+    }
+    int soerr = 0;
+    socklen_t sl = sizeof soerr;
+    if (getsockopt(s->fd, SOL_SOCKET, SO_ERROR, &soerr, &sl) == 0 &&
+        soerr == 0) {
+        if (s->ai) {
+            freeaddrinfo(s->ai);
+        }
+        s->ai = NULL;
+        s->ai_cur = NULL;
+        s->state = ST_SEND;
+        s->t_last = now;
+        return 1;
+    }
+    close(s->fd);
+    s->fd = -1;
+    if (try_connect_addr(s, s->ai_cur ? s->ai_cur->ai_next : NULL) == 0) {
+        return s->state == ST_SEND ? 1 : 0;
+    }
+    set_error(s, "connect %s:%d: %s", s->ep.host, s->ep.port,
+              soerr ? strerror(soerr) : "failed");
+    return -1;
+}
+
 int stream_tick(Stream *s, size_t *progress) {
     if (!s) {
         return -1;
@@ -715,6 +861,16 @@ int stream_tick(Stream *s, size_t *progress) {
         return -1;
     }
     for (;;) {
+        if (s->state == ST_CONNECT) {
+            int cr = tick_connect(s, now_sec());
+            if (cr < 0) {
+                return -1;
+            }
+            if (cr == 0) {
+                return 0;
+            }
+            continue;
+        }
         if (s->state == ST_SEND) {
             while (s->sent < s->req.len) {
                 ssize_t n = send(s->fd, s->req.p + s->sent,
@@ -818,6 +974,9 @@ void stream_free(Stream *s) {
     }
     if (s->fd >= 0) {
         close(s->fd);
+    }
+    if (s->ai) {
+        freeaddrinfo(s->ai);
     }
     buf_free(&s->req);
     buf_free(&s->headers);

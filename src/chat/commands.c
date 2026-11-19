@@ -7,6 +7,7 @@
 #include <wchar.h>
 
 #include "api/api.h"
+#include "chat/title.h"
 #include "ui/ui.h"
 
 static void note(App *a, const char *fmt, ...) {
@@ -147,6 +148,7 @@ void run_command(App *a, const char *cmdline) {
         }
     } else if (strcmp(cmd, "clear") == 0) {
         msgs_clear(a);
+        title_reset(a);
     } else if (strcmp(cmd, "retry") == 0) {
         retry_last(a);
     } else {

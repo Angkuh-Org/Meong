@@ -6,6 +6,7 @@
 #include "api/api.h"
 #include "app/app.h"
 #include "chat/chat.h"
+#include "chat/title.h"
 #include "cli/cli.h"
 #include "ui/ui.h"
 
@@ -470,6 +471,7 @@ static int tui_run(App *a) {
                 a->dirty = 1;
             }
         }
+        title_tick(a);
         double now = now_sec();
         if (a->dirty && (had_key || now - last_draw >= 0.03)) {
             ui_draw(a);
@@ -568,6 +570,7 @@ static int tui_main(const Options *o) {
     }
 
     int rc = tui_run(&a);
+    title_reset(&a);
     jdoc_free(&a.stream_doc);
     buf_free(&a.stream_buf);
     buf_free(&a.stream_tool_id);

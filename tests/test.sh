@@ -147,10 +147,10 @@ ok "layout: benchmark harness builds and runs"
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc -Isrc/ui \
     -o "$TMP/header_mid_test" \
     tests/c/header_mid_test.c $LAYOUT_SRCS $NC_LIBS \
-    || fail "header chip test did not compile"
+    || fail "header title test did not compile"
 "$TMP/header_mid_test" >/dev/null \
-    || fail "header chip clamp cut by bytes or past the buffer"
-ok "header: over-long model id keeps a UTF-8 prefix and width"
+    || fail "header title clamp cut by bytes or past the buffer"
+ok "header: over-long chat title keeps a UTF-8 prefix and width"
 
 PORT=$(python3 - <<'PY'
 import socket
@@ -395,7 +395,7 @@ if command -v tmux >/dev/null 2>&1; then
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -Fq ' ch'; then
+            grep -Eq '^  . [0-9]+\.[0-9]+s +[^ ]+ ch'; then
             break
         fi
         i=$((i + 1))
@@ -436,7 +436,8 @@ if command -v tmux >/dev/null 2>&1; then
     done
     tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq '❯ sec' \
         || fail "composer rejected typing while streaming"
-    tmux capture-pane -p -t "$TMUX_SESS" | grep -Fq ' ch' \
+    tmux capture-pane -p -t "$TMUX_SESS" |
+        grep -Eq '^  . [0-9]+\.[0-9]+s +[^ ]+ ch' \
         || fail "stream ended before the queued prompt was entered"
     tmux send-keys -l -t "$TMUX_SESS" 'ond'
     tmux send-keys -t "$TMUX_SESS" Enter
@@ -524,13 +525,13 @@ if command -v tmux >/dev/null 2>&1; then
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            tail -1 | grep -Fq 'ctx '; then
+            tail -2 | head -1 | grep -Fq 'ctx '; then
             break
         fi
         i=$((i + 1))
         sleep 0.05
     done
-    narrow=$(tmux capture-pane -p -t "$TMUX_SESS" | tail -1)
+    narrow=$(tmux capture-pane -p -t "$TMUX_SESS" | tail -2 | head -1)
     printf '%s\n' "$narrow" | grep -Fq 'ctx ' \
         || fail "narrow footer lost the context segment"
     if printf '%s\n' "$narrow" | grep -Fq 'cache'; then
@@ -592,7 +593,7 @@ if command -v tmux >/dev/null 2>&1; then
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -Fq ' ch'; then
+            grep -Eq '^  . [0-9]+\.[0-9]+s +[^ ]+ ch'; then
             break
         fi
         i=$((i + 1))
@@ -603,7 +604,7 @@ if command -v tmux >/dev/null 2>&1; then
     i=0
     while [ "$i" -lt 10 ]; do
         line=$(tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -F ' ch' | head -1)
+            grep -E '^  . [0-9]+\.[0-9]+s +[^ ]+ ch' | head -1)
         [ -n "$line" ] || break
         glyph=${line#  }
         glyph=${glyph%% *}
@@ -699,14 +700,19 @@ print(len("".join(ch for ch, _ in rows[0]).rstrip()))
     done
     pane=$(tmux capture-pane -p -t "$TMUX_SESS")
     header=$(printf '%s\n' "$pane" | head -1)
+    footer=$(printf '%s\n' "$pane" | tail -1)
     cat_icon=$(printf '\356\273\255')
     case "$header" in
         " $cat_icon Meong  |  "*) ;;
         *) fail "header does not start with the cat icon and pipe-separated brand" ;;
     esac
     case "$header" in
+        *'new chat'*) ;;
+        *) fail "header lost the new-chat placeholder" ;;
+    esac
+    case "$footer" in
         *'mock/split'*) ;;
-        *) fail "header lost the full model id" ;;
+        *) fail "footer lost the full model id" ;;
     esac
     case "$header" in
         *'·'*) fail "header still uses the dot separator" ;;
@@ -855,7 +861,7 @@ print(len("".join(ch for ch, _ in rows[0]).rstrip()))
     tmux send-keys -t "$TMUX_SESS" C-u
     ok "typing closes the pet card without eating the key"
 
-    click_rc 1 13
+    click_rc 40 5
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
@@ -867,7 +873,7 @@ print(len("".join(ch for ch, _ in rows[0]).rstrip()))
     done
     pane=$(tmux capture-pane -p -t "$TMUX_SESS")
     printf '%s\n' "$pane" | grep -Eq 'provider +mock' \
-        || fail "clicking the header model did not open its capability card"
+        || fail "clicking the footer model did not open its capability card"
     printf '%s\n' "$pane" | grep -Fq 'mock/split' \
         || fail "capability card does not name the current model"
     printf '%s\n' "$pane" | grep -Eq 'context +131,072' \
@@ -889,7 +895,7 @@ print(len("".join(ch for ch, _ in rows[0]).rstrip()))
         || fail "capability card lost the cost line"
     printf '%s\n' "$pane" | grep -Fq '~ models.dev estimate for missing fields' \
         || fail "capability card lost the estimate marker"
-    ok "clicking the header model opens its capability card"
+    ok "clicking the footer model opens its capability card"
 
     click_rc 20 5
     i=0
@@ -1161,6 +1167,126 @@ PY
     ok "mouse wheel still scrolls the picker"
     tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
     TMUX_SESS=""
+
+    TMUX_SESS="Meong-title-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 110 -y 40 \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config-title' XDG_CACHE_HOME='$TMP/cache-title' \
+         '$BIN_ABS' --url '$URL' --model mock/split --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    header=$(tmux capture-pane -p -t "$TMUX_SESS" | head -1)
+    case "$header" in
+        *'new chat'*) ;;
+        *) fail "header lost the new-chat placeholder" ;;
+    esac
+    hits0=$(python3 - "$URL/stats" <<'PY'
+import json
+import sys
+import urllib.request
+
+with urllib.request.urlopen(sys.argv[1], timeout=2) as r:
+    print(json.loads(r.read().decode())["title_hits"])
+PY
+)
+    tmux send-keys -l -t "$TMUX_SESS" 'first prompt about the cat'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        header=$(tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null | head -1)
+        case "$header" in
+            *'mock chat title'*) break ;;
+        esac
+        i=$((i + 1))
+        sleep 0.05
+    done
+    case "$header" in
+        *'mock chat title'*) ;;
+        *) fail "first prompt did not set the AI chat title" ;;
+    esac
+    tmux capture-pane -p -t "$TMUX_SESS" | tail -1 |
+        grep -Fq 'mock/split' || fail "title run lost the footer model"
+    tmux send-keys -l -t "$TMUX_SESS" 'second prompt'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    sleep 0.6
+    delta=$(python3 - "$URL/stats" "$hits0" <<'PY'
+import json
+import sys
+import urllib.request
+
+with urllib.request.urlopen(sys.argv[1], timeout=2) as r:
+    now = json.loads(r.read().decode())["title_hits"]
+print(now - int(sys.argv[2]))
+PY
+)
+    [ "$delta" = 1 ] || fail "title requests for this chat: $delta"
+    ok "first prompt sets one AI title; the model stays in the footer"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    TMUX_SESS="Meong-title-live-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 110 -y 40 \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config-title-live' \
+         XDG_CACHE_HOME='$TMP/cache-title-live' \
+         '$BIN_ABS' --url '$URL' --model mock/slow --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    hits0=$(python3 - "$URL/stats" <<'PY'
+import json
+import sys
+import urllib.request
+
+with urllib.request.urlopen(sys.argv[1], timeout=2) as r:
+    print(json.loads(r.read().decode())["title_hits"])
+PY
+)
+    tmux send-keys -l -t "$TMUX_SESS" 'overlap prompt'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    seen=""
+    i=0
+    while [ "$i" -lt 100 ]; do
+        seen=$(tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null | head -1)
+        case "$seen" in
+            *'mock chat title'*'streaming'*) break ;;
+        esac
+        i=$((i + 1))
+        sleep 0.05
+    done
+    case "$seen" in
+        *'mock chat title'*'streaming'*) ;;
+        *) fail "title did not land while the chat was still streaming" ;;
+    esac
+    hits1=$(python3 - "$URL/stats" <<'PY'
+import json
+import sys
+import urllib.request
+
+with urllib.request.urlopen(sys.argv[1], timeout=2) as r:
+    print(json.loads(r.read().decode())["title_hits"])
+PY
+)
+    [ "$((hits1 - hits0))" -eq 1 ] \
+        || fail "title requests during the slow chat: $((hits1 - hits0))"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+    ok "title lands while the chat stream is still running"
 
     mkdir -p "$TMP/toolfix/sub"
     printf 'alpha\nbeta\ngamma\n' >"$TMP/toolfix/notes.md"
@@ -1548,10 +1674,8 @@ PY
         " $cat_icon Meong  |  "*) ;;
         *) fail "36-column header lost the cat brand" ;;
     esac
-    case "$header" in
-        *'moc…'*) ;;
-        *) fail "36-column header lost the model chip" ;;
-    esac
+    tmux capture-pane -p -t "$TMUX_SESS" | tail -1 |
+        grep -Fq 'mock/plain' || fail "36-column footer lost the model id"
     printf '%s\n' "$pane" | grep -Fq '( ^.^ )' \
         || fail "pet card vanished at 36x10"
     printf '%s\n' "$pane" | grep -Eq 'dielus +1x' \
@@ -1856,7 +1980,7 @@ PY
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -Fq ' ch'; then
+            grep -Eq '^  . [0-9]+\.[0-9]+s +[^ ]+ ch'; then
             break
         fi
         i=$((i + 1))
@@ -2018,7 +2142,7 @@ PY
     done
     head -1 "$LEGACY/models" | grep -Fq '#meong-models-v3' \
         || fail "legacy cache was not migrated to v3"
-    click_rc 1 13
+    click_rc 40 5
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
@@ -2054,7 +2178,7 @@ PY
     done
     head -1 "$V2CACHE/models" | grep -Fq '#meong-models-v3' \
         || fail "v2 cache was not migrated to v3"
-    click_rc 1 13
+    click_rc 40 5
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |

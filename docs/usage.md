@@ -89,7 +89,9 @@ Model state and cache paths: [`models.md`](models.md).
   the gateway; only the display buffer is transformed.
 - With a Nerd Font, the header draws `nf-fa-cat` (U+EEED) before `Meong`;
   `--no-nerd` or `MEONG_NO_NERD` drops just that glyph, while `--ascii` drops
-  all non-ASCII chrome.
+  all non-ASCII chrome. The middle of the header is the chat title, generated
+  once per chat from the first prompt by one extra request to the current
+  model; before it arrives the slot reads `new chat`.
 - Input supports UTF-8 and wide characters.
 - Reasoning rows use the `│` rail; the last row closes with `╰─`.
 
@@ -98,9 +100,11 @@ Model state and cache paths: [`models.md`](models.md).
 - Requests keep the newest ~200 KB of user/assistant text. Older turns are
   dropped, replaced by a one-line system note, and the footer shows `trimmed`;
   the visible transcript keeps everything until `/clear`.
-- The footer shows `ctx N%` and, when the gateway reports it, `cache N%` from
-  `usage.prompt_tokens_details.cached_tokens`. `cache -` means the gateway
-  omitted the field; `cache 0%` means it reported a real zero.
+- The footer is two lines: the hint with `ctx N%` and `cache N%` on the first,
+  the full model id on the second. Clicking the model opens the capability
+  card, same as `f2`. `cache -` means the gateway omitted
+  `usage.prompt_tokens_details.cached_tokens`; `cache 0%` means it reported a
+  real zero.
 - Each finished turn prints one `N tok | Xs` line at the bottom of its final
   response. Tokens and elapsed time are summed across the thinking and tool
   rounds of that turn; intermediate responses do not print their own line.

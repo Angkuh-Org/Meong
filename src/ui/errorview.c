@@ -245,8 +245,8 @@ void error_draw(App *a, int rows, int cols) {
     }
     int px = (cols - w) / 2;
     int py = (rows - h) / 2;
-    if (py + h - 1 >= rows - 4) {
-        py = rows - 4 - h;
+    if (py + h - 1 >= rows - 5) {
+        py = rows - 5 - h;
         if (py < 1) {
             py = 1;
         }
