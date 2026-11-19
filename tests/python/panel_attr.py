@@ -24,8 +24,10 @@ def cell_width(ch):
     return 1
 
 
-def screen(text):
+def cells(text):
+    """Track foreground and background; rows of (ch, fg, bg)."""
     rows = [[]]
+    fg = None
     bg = None
     i = 0
     while i < len(text):
@@ -35,13 +37,25 @@ def screen(text):
             j = 0
             while j < len(params):
                 p = params[j]
-                if p in ("0", "49"):
+                if p == "0":
+                    fg = None
                     bg = None
+                elif p == "39":
+                    fg = None
+                elif p == "49":
+                    bg = None
+                elif p == "38" and j + 2 < len(params) and params[j + 1] == "5":
+                    fg = int(params[j + 2])
+                    j += 2
                 elif p == "48" and j + 2 < len(params) and params[j + 1] == "5":
                     bg = int(params[j + 2])
                     j += 2
                 elif p == "40":
                     bg = 0
+                elif p.isdigit() and 30 <= int(p) <= 37:
+                    fg = int(p) - 30
+                elif p.isdigit() and 90 <= int(p) <= 97:
+                    fg = int(p) - 90 + 8
                 elif p.isdigit() and 41 <= int(p) <= 47:
                     bg = int(p) - 40
                 elif p.isdigit() and 100 <= int(p) <= 107:
@@ -55,11 +69,15 @@ def screen(text):
         elif ch != "\r":
             width = cell_width(ch)
             if width:
-                rows[-1].append((ch, bg))
+                rows[-1].append((ch, fg, bg))
                 if width == 2:
-                    rows[-1].append((" ", bg))
+                    rows[-1].append((" ", fg, bg))
         i += 1
     return rows
+
+
+def screen(text):
+    return [[(ch, bg) for ch, fg, bg in row] for row in cells(text)]
 
 
 def main():

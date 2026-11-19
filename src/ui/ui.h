@@ -30,6 +30,7 @@ enum {
     P_PANEL_DIM,
     P_PANEL_ACCENT,
     P_PANEL_BORDER,
+    P_PANEL_WARN,
     P_SHADOW,
     P_HOK,
     P_HWAIT,
@@ -49,6 +50,12 @@ static inline attr_t pair_attr(const App *a, int pair) {
 /* U+EEED nf-fa-cat; Nerd Font mono glyphs are one cell wide */
 static inline const char *sym_brand_icon(const App *a) {
     return a->nerd ? "\xEE\xBB\xAD" : "";
+}
+
+/* U+F0ECD nf-md-shield_alert_outline marks the permission card title; the
+ * leading space keeps the glyph off the border corner */
+static inline const char *sym_perm_shield(const App *a) {
+    return a->nerd ? " \xF3\xB0\xBB\x8D" : "";
 }
 
 static inline const char *sym_user(const App *a) {

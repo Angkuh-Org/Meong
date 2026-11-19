@@ -12,7 +12,8 @@
 #include "chat/chat.h"
 
 /* acid/cyber industrial: xterm-256 indices nearest to
- * base 101110, surface 222522, text d9ded6, accent b6ff00, muted 747b72 */
+ * base 101110, surface 222522, text d9ded6, accent b6ff00, muted 747b72;
+ * warn ff8700 marks the outside-cwd permission gate */
 #define C_BASE 233
 #define C_SURFACE 235
 #define C_TEXT 253
@@ -20,14 +21,18 @@
 #define C_MUTED 243
 #define C_SHADOW 234
 #define C_ERR 203
+#define C_WARN 208
 
 /* one quadrant filled clockwise; wall-clock phase, and the modulo below is
  * the table length, so adding a frame cannot read past the array */
 #define SPIN_FRAMES(a) ((int)(sizeof(a) / sizeof((a)[0])))
 #define SPIN_HZ 5 /* 5 frames/s: one clockwise turn per 0.8 s */
-/* The permission card replaces the three-row composer and grows four rows up
- * into the chat area; chat_height reserves exactly that. */
-#define PERM_CARD_H 7
+/* The permission card replaces the three-row composer and grows five rows up
+ * into the chat area; chat_height reserves exactly that. At UI_MIN_ROWS the
+ * extra blank row does not fit above the footer, so the card falls back to
+ * the compact height. */
+#define PERM_CARD_H 8
+#define PERM_CARD_MIN_H 7
 static const char *spin_utf8[] = {"▖", "▘", "▝", "▗"};
 static const char *spin_ascii[] = {"|", "/", "-", "\\"};
 
@@ -62,6 +67,7 @@ static void init_pairs(void) {
         init_pair(P_PANEL_DIM, C_MUTED, C_SURFACE);
         init_pair(P_PANEL_ACCENT, C_ACCENT, C_SURFACE);
         init_pair(P_PANEL_BORDER, C_MUTED, C_SURFACE);
+        init_pair(P_PANEL_WARN, C_WARN, C_SURFACE);
         init_pair(P_SHADOW, C_SHADOW, C_SHADOW);
         init_pair(P_HOK, C_ACCENT, C_SURFACE);
         init_pair(P_HWAIT, C_ACCENT, C_SURFACE);
@@ -92,6 +98,7 @@ static void init_pairs(void) {
         init_pair(P_PANEL_DIM, COLOR_WHITE, -1);
         init_pair(P_PANEL_ACCENT, COLOR_GREEN, -1);
         init_pair(P_PANEL_BORDER, COLOR_WHITE, -1);
+        init_pair(P_PANEL_WARN, COLOR_YELLOW, -1);
         init_pair(P_SHADOW, COLOR_WHITE, -1);
         init_pair(P_HOK, COLOR_BLACK, COLOR_GREEN);
         init_pair(P_HWAIT, COLOR_BLACK, COLOR_GREEN);
@@ -482,7 +489,8 @@ static int status_rows(const App *a) {
 }
 
 int chat_height(const App *a, int rows) {
-    int extra = a->tool_pending ? PERM_CARD_H - 3 : 0;
+    int card_h = rows < 11 ? PERM_CARD_MIN_H : PERM_CARD_H;
+    int extra = a->tool_pending ? card_h - 3 : 0;
     int h = rows - 6 - status_rows(a) - extra;
     return h > 1 ? h : 1;
 }
@@ -607,25 +615,47 @@ static __attribute__((noinline, cold)) void perm_draw(App *a, int rows,
         return;
     }
     int px = 1;
-    int py = rows - 3 - PERM_CARD_H + 1;
+    int card_h = rows < 11 ? PERM_CARD_MIN_H : PERM_CARD_H;
+    int pad = card_h - PERM_CARD_MIN_H;
+    int py = rows - 3 - card_h + 1;
     if (py < 1) {
         py = 1;
     }
     const ToolCall *call = perm_pending_call(a);
     const char *name = call && call->name && *call->name ? call->name
                                                         : "tool";
+    /* 512 covers every realistic width; the frame is cold, so shrinking it
+     * was measured and rejected. */
     char args[512];
 
-    const char *title = a->unicode ? " permission · outside cwd "
-                                   : " permission - outside cwd ";
-    panel_frame(a, px, py, w, PERM_CARD_H, title, 0);
+    panel_frame(a, px, py, w, card_h, NULL, 0);
+
+    const char *label = " permission ";
+    int tx = px + 3;
+    wattrset(stdscr, pair_attr(a, P_PANEL_ACCENT) | A_BOLD);
+    const char *shield = sym_perm_shield(a);
+    if (shield[0]) {
+        mvaddstr(py, tx, shield);
+        tx += 2;
+    }
+    mvaddstr(py, tx, label);
+    tx += (int)strlen(label) - 1;
+
+    static const char where[] = " outside cwd ";
+    int where_w = (int)sizeof where - 1;
+    int where_x = px + w - 3 - where_w;
+    if (where_x >= tx + 2) {
+        wattrset(stdscr, a->color ? pair_attr(a, P_PANEL_WARN)
+                                  : (attr_t)A_BOLD);
+        mvaddstr(py, where_x, where);
+    }
 
     int x0 = px + 2;
     int maxx = px + w - 2;
-    int y = py + 1;
-    wattrset(stdscr, pair_attr(a, P_WAIT) | A_BOLD);
-    mvaddstr(y, x0, sym_tool_ask(a));
+    int cy = py + pad;
+    int y = cy + 1;
     wattrset(stdscr, pair_attr(a, P_PANEL_ACCENT) | A_BOLD);
+    mvaddstr(y, x0, sym_tool_ask(a));
     mvaddnstr(y, x0 + 2, name, maxx - (x0 + 2) + 1);
     int textw = maxx - (x0 + 2) + 1;
     size_t args_cap = sizeof args;
@@ -643,7 +673,7 @@ static __attribute__((noinline, cold)) void perm_draw(App *a, int rows,
         labels[2] = "Always allow this session";
         gap = 2;
     }
-    int by = py + 4;
+    int by = cy + 4;
     int bx = x0;
     a->perm_btn_y = by;
     for (int i = 0; i < 3; i++) {
@@ -673,7 +703,7 @@ static __attribute__((noinline, cold)) void perm_draw(App *a, int rows,
         }
     }
     wattrset(stdscr, pair_attr(a, P_PANEL_DIM));
-    mvaddnstr(py + 5, x0, hint, avail + 8);
+    mvaddnstr(cy + 5, x0, hint, avail + 8);
     a->cursor_on = 0;
 }
 
