@@ -299,6 +299,7 @@ void help_draw(App *a, int rows, int cols) {
         "  /              command menu (up/down, enter)",
         "  ?              help (empty composer)",
         "  enter          send, or queue while replying",
+        "  permission     arrows choose, enter, y/n/a, or click",
         "  tab            model picker / slash complete",
         "  pgup / pgdn    scroll the conversation",
         "  ctrl-g / ctrl-t jump to bottom / top",

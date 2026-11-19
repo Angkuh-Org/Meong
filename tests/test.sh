@@ -1597,7 +1597,7 @@ PY
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
-            grep -Fq 'awaiting y/n'; then
+            grep -Fq '[ Reject ]'; then
             break
         fi
         i=$((i + 1))
@@ -1606,9 +1606,20 @@ PY
     pane=$(tmux capture-pane -p -t "$TMUX_SESS")
     printf '%s\n' "$pane" | grep -Fq '? read_file  /proj/version.txt' \
         || fail "permission row lost its ask glyph"
-    printf '%s\n' "$pane" | grep -Fq 'permission: y allow / n deny' \
-        || fail "permission prompt left the composer"
-    tmux send-keys -t "$TMUX_SESS" n
+    printf '%s\n' "$pane" | grep -Fq 'permission · outside cwd' \
+        || fail "permission card did not replace the composer"
+    printf '%s\n' "$pane" | grep -Fq '{"path":"/proj/version.txt"}' \
+        || fail "permission card hid the requested arguments"
+    printf '%s\n' "$pane" | grep -Fq '[ Allow ]' \
+        || fail "permission card lost the allow button"
+    printf '%s\n' "$pane" | grep -Fq '[ Reject ]' \
+        || fail "permission card lost the reject button"
+    printf '%s\n' "$pane" | grep -Fq '[ Always allow this session ]' \
+        || fail "permission card lost the session button"
+    printf '%s\n' "$pane" | grep -Fq 'always = this session' \
+        || fail "permission card did not scope the session button"
+    tmux send-keys -t "$TMUX_SESS" Right
+    tmux send-keys -t "$TMUX_SESS" Enter
     i=0
     while [ "$i" -lt 100 ]; do
         if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
@@ -1621,10 +1632,107 @@ PY
     pane=$(tmux capture-pane -p -t "$TMUX_SESS")
     printf '%s\n' "$pane" | grep -Fq '✗ read_file  /proj/version.txt' \
         || fail "denied permission did not turn the row into an error"
-    if printf '%s\n' "$pane" | grep -Fq 'awaiting y/n'; then
-        fail "permission row survived the answer"
+    if printf '%s\n' "$pane" | grep -Fq '[ Reject ]'; then
+        fail "permission card survived the answer"
     fi
-    ok "out-of-cwd tool waits for y/n and fills the same row"
+    ok "permission card denies with right-arrow and enter"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    TMUX_SESS="Meong-tools-always-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 90 -y 26 -c "$PWD" \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/tools-session --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'go'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '[ Reject ]'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq '[ Always allow this session ]' \
+        || fail "session allow: the card lost its third button"
+    tmux send-keys -t "$TMUX_SESS" a
+    i=0
+    while [ "$i" -lt 200 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'tool said:'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq 'tool said:' \
+        || fail "session allow: the tool round never finished"
+    if printf '%s\n' "$pane" | grep -Fq '[ Reject ]'; then
+        fail "session allow prompted again for the second outside path"
+    fi
+    calls=$(printf '%s\n' "$pane" | grep -Fc '✗ read_file' || true)
+    [ "${calls:-0}" -ge 2 ] \
+        || fail "session allow did not run both outside calls"
+    ok "always allow this session skips the next outside path"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    TMUX_SESS="Meong-tools-click-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 90 -y 26 -c "$PWD" \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/tools"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'go'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '[ Reject ]'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    # 90x26 card: buttons at row 22 (1-based), Reject spans columns 15-24.
+    tmux send-keys -l -t "$TMUX_SESS" "$(printf '\033[<0;19;22M')"
+    tmux send-keys -l -t "$TMUX_SESS" "$(printf '\033[<0;19;22m')"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'permission denied'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq '✗ read_file  /proj/version.txt' \
+        || fail "clicking reject did not deny the call"
+    ok "permission card rejects on a mouse click"
     tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
     TMUX_SESS=""
 
