@@ -1606,10 +1606,59 @@ PY
     pane=$(tmux capture-pane -p -t "$TMUX_SESS")
     printf '%s\n' "$pane" | grep -Fq '? read_file  /proj/version.txt' \
         || fail "permission row lost its ask glyph"
-    printf '%s\n' "$pane" | grep -Fq 'permission · outside cwd' \
+    printf '%s\n' "$pane" | grep -Fq 'permission' \
         || fail "permission card did not replace the composer"
+    printf '%s\n' "$pane" | grep -Fq 'outside cwd' \
+        || fail "permission card lost the outside-cwd label"
     printf '%s\n' "$pane" | grep -Fq '{"path":"/proj/version.txt"}' \
         || fail "permission card hid the requested arguments"
+    tmux capture-pane -e -p -t "$TMUX_SESS" >"$TMP/perm.ansi"
+    python3 - "$TMP/perm.ansi" <<'PY' || fail "permission card layout"
+import sys
+sys.path.insert(0, "tests/python")
+from panel_attr import cells
+
+rows = cells(open(sys.argv[1], encoding="utf-8").read())
+lines = ["".join(ch for ch, _, _ in row) for row in rows]
+title = next(
+    (y for y, line in enumerate(lines)
+     if "permission" in line and "outside cwd" in line),
+    None,
+)
+if title is None:
+    sys.exit("permission card: title line not found")
+call = next(
+    (y for y, line in enumerate(lines)
+     if y > title and "? read_file" in line),
+    None,
+)
+if call is None:
+    sys.exit("permission card: pending call row not found")
+if call != title + 2:
+    sys.exit(f"permission card: want one blank row (title={title}, call={call})")
+if lines[title + 1].strip(" │|"):
+    sys.exit("permission card: the gap row is not blank")
+x = lines[title].index("outside cwd")
+fg = rows[title][x][1]
+if fg != 208:
+    sys.exit(f"permission card: outside cwd fg={fg}, want 208")
+if "\U000f0ecd" not in lines[title]:
+    sys.exit("permission card: title lost the nf-md-shield_alert_outline glyph")
+panel_bg = rows[title + 1][2][2]
+qx = lines[call].index("?")
+q_fg, q_bg = rows[call][qx][1], rows[call][qx][2]
+if q_bg != panel_bg or q_fg != 154:
+    sys.exit(
+        f"permission card: ask glyph fg/bg={q_fg}/{q_bg}, "
+        f"want 154/{panel_bg}"
+    )
+if not lines[title].lstrip(" ").startswith("┌──") or lines[title].index("permission") < 3:
+    sys.exit("permission card: title lost its border prefix")
+print(
+    f"permission card: title={title}, call={call}, outside cwd fg={fg}, "
+    f"ask fg/bg={q_fg}/{q_bg}"
+)
+PY
     printf '%s\n' "$pane" | grep -Fq '[ Allow ]' \
         || fail "permission card lost the allow button"
     printf '%s\n' "$pane" | grep -Fq '[ Reject ]' \

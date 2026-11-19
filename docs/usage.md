@@ -71,7 +71,7 @@ display details, and output bounds: [`tools.md`](tools.md).
 | `MEONG_CONFIG_DIR` | overrides the config directory |
 | `MEONG_CACHE_DIR` | overrides the cache directory |
 | `MEONG_ASCII` | force ASCII borders and symbols |
-| `MEONG_NO_NERD` | hide the Nerd Font cat before `Meong` |
+| `MEONG_NO_NERD` | hide the Nerd Font cat and permission shield |
 | `MEONG_NO_MOUSE` | disable mouse and touch input |
 | `MEONG_YOLO` | allow tools outside the working directory |
 | `NO_COLOR` | disable color |
@@ -88,10 +88,10 @@ Model state and cache paths: [`models.md`](models.md).
   fenced code as a box.  The raw markdown stays in the message sent back to
   the gateway; only the display buffer is transformed.
 - With a Nerd Font, the header draws `nf-fa-cat` (U+EEED) before `Meong`;
-  `--no-nerd` or `MEONG_NO_NERD` drops just that glyph, while `--ascii` drops
-  all non-ASCII chrome. The middle of the header is the chat title, generated
-  once per chat from the first prompt by one extra request to the current
-  model; before it arrives the slot reads `new chat`.
+  `--no-nerd` or `MEONG_NO_NERD` drops just those glyphs, while `--ascii`
+  drops all non-ASCII chrome. The middle of the header is the chat title,
+  generated once per chat from the first prompt by one extra request to the
+  current model; before it arrives the slot reads `new chat`.
 - Input supports UTF-8 and wide characters.
 - Reasoning rows use the `│` rail; the last row closes with `╰─`.
 
