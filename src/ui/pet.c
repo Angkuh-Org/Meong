@@ -148,7 +148,7 @@ void pet_draw(App *a, int rows, int cols) {
     }
     int px = (cols - w) / 2;
     int py = (rows - h) / 2;
-    if (py + h - 1 >= rows - 4) {
+    if (py + h - 1 >= rows - 5) {
         py = 1;
         h = rows - 2;
     }

@@ -305,7 +305,7 @@ void help_draw(App *a, int rows, int cols) {
         "  ctrl-c         cancel a reply, or quit when idle",
         "  ctrl-l         redraw",
         "  ctrl-o/click   fold reasoning; f1 pets Meong",
-        "  f2             model capabilities (or click the header)",
+        "  f2             model capabilities (or click the footer model)",
         "press any key to close",
     };
     int n = (int)(sizeof lines / sizeof lines[0]);

@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "api/api.h"
+#include "chat/title.h"
 #include "json/json.h"
 #include "ui/ui.h"
 
@@ -390,6 +391,8 @@ int start_generation(App *a) {
     }
     a->layout_from = from;
     Stream *s = NULL;
+    /* TODO(perf): the chat stream still uses synchronous stream_start; only
+     * the title stream uses stream_start_async. */
     if (stream_start(&s, &a->ep, "POST", "/v1/chat/completions", body.p,
                      body.len, 1, on_stream_event, a, 240000, err,
                      sizeof err) != 0) {
@@ -945,6 +948,7 @@ static int send_text(App *a, const char *text) {
     if (start_generation(a) != 0) {
         return -1;
     }
+    title_request(a, text);
     a->follow = 1;
     a->new_below = 0;
     return 1;

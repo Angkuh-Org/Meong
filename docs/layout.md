@@ -25,20 +25,21 @@ tests/    shell harness, C harnesses (tests/c/), pty/tmux TUI tests
 `main()` dispatches the CLI modes and leaves the default path to `tui_main()`,
 which seeds the `App`, resolves the endpoint, loads the model list, and picks
 the initial model. `tui_run()` is the event loop: read a key, tick the active
-stream, redraw dirty frames on a 30 ms throttle (50 ms ticks while streaming),
-and animate the spinner at 5 Hz (one clockwise turn per 0.8 s over four
-quadrant frames). `handle_key()` routes keys to the request error window first,
-then the composer, scrolling, the slash menu, the picker, the help overlay, the
-pet card, or the model capability card; `handle_mouse()` owns the header brand
-box, the model hit-box, the pet-card hit-box, the error-window rows, and the
-chat click.
+reply and title streams, redraw dirty frames on a 30 ms throttle (50 ms ticks
+while streaming), and animate the spinner at 5 Hz (one clockwise turn per 0.8 s
+over four quadrant frames). `handle_key()` routes keys to the request error
+window first, then the composer, scrolling, the slash menu, the picker, the
+help overlay, the pet card, or the model capability card; `handle_mouse()` owns
+the header brand box, the footer model hit-box, the pet-card hit-box, the
+error-window rows, and the chat click.
 
 ## `src/app/`
 
 `App` in `app.h` is the single mutable state object: messages, model list and
 per-model capabilities, picker, help, pet-card, capability-card and
-error-window state, the active stream, the prompt queue, the scroll/layout
-cache, composer text, history, and theme flags. `app.c` owns
+error-window state, the active reply stream, the one-shot title stream and its
+attempt flag, the prompt queue, the scroll/layout cache, composer text,
+history, and theme flags. `app.c` owns
 message and queue storage and the config/cache directory rules; it also calls
 `md_reset`/`md_release` so a `Msg` owns its display buffer even though the
 markdown translator itself lives in `ui/md.c`. `state.c`
@@ -71,6 +72,12 @@ fails, and failures stay out of the transcript (a partial reply is kept).
 `commands.c` implements `/model`, `/models`, `/system`, `/clear`,
 `/retry`, `/help`, and `/quit`, owns the command table behind the composer's
 slash menu, and shares `retry_last()` with the error window's retry row.
+`title.c` owns the chat title: the first user prompt of a chat fires exactly
+one extra request to the current model through `stream_start_async()`, so a
+slow TCP handshake cannot delay the chat request; it ticks on that independent
+`Stream` and stores a sanitised single-line reply from either an SSE or JSON
+body (PAIG's free route forces streaming). A failed request leaves the header
+at the `new chat` placeholder, and `/clear` resets the attempt.
 `tool_accum.c` is the index-keyed streaming accumulator: whole calls replace a
 slot on `cc/*`, fragmented `arguments` append on passthrough routes, and a call
 with no index/id starts a new slot unless it is an argument-only continuation.
@@ -116,7 +123,9 @@ fast scanner each have a differential harness in `tests/c/`.
 A nonblocking HTTP/1.1 client with no TLS and no libcurl. `endpoint_parse()`
 splits the base URL and strips a trailing `/v1`, so request paths such as
 `/v1/models` do not double up; `stream_start()` opens the connection and sends
-the request; `stream_tick()` returns `0` while running, `1` on completion, and
+the request, while `stream_start_async()` defers the TCP handshake to the
+first `stream_tick()` so the one-shot title request cannot delay the chat
+request. `stream_tick()` returns `0` while running, `1` on completion, and
 a negative value on error. It decodes chunked transfer and SSE `data:` frames,
 stops at `[DONE]`, tolerates an un-framed JSON body in stream mode, and uses
 `Connection: close` — one request per connection. Caps: 128 KB headers, 8 MB
@@ -136,7 +145,8 @@ physical lines.
 mouse), the header, status, input, and footer chrome, the splash and scrollbar,
 and the `ui_draw()` frame; the header draws the
 `nf-fa-cat` mark and records the `Meong` brand box so a click or tap pets the
-cat. `md.c` owns the append-only assistant display buffer: it consumes raw
+cat, shows the chat title (or a dim `new chat`) in the middle, and leaves the
+model id on the footer's second line as the model-card hit box. `md.c` owns the append-only assistant display buffer: it consumes raw
 markdown as it streams, holds ambiguous tails until the next chunk, and emits
 visible text plus zero-width style and block-metadata commands. `view.c` owns
 `RLine`, the wrapped row model behind the transcript:

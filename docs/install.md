@@ -17,7 +17,7 @@ Expected output on a terminal:
 
   ✔ download  meong-linux-x86_64 (103.4 KiB)
   ✔ checksum  sha256 verified
-  ✔ verify    Meong v0.12.0
+  ✔ verify    Meong v0.13.0
   ✔ install   /home/you/.local/bin/meong
 
   next  meong
@@ -35,7 +35,7 @@ that directory is not on `PATH`, it prints the `export` line to add.
 
 Pin a version:
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Angkuh-Org/Meong/main/install.sh | sh -s -- v0.12.0
+curl -fsSL https://raw.githubusercontent.com/Angkuh-Org/Meong/main/install.sh | sh -s -- v0.13.0
 ```
 
 Choose the install directory:
@@ -68,7 +68,7 @@ place.
 ## Manual install
 
 ```sh
-version=v0.12.0
+version=v0.13.0
 arch=x86_64   # or aarch64
 base=https://github.com/Angkuh-Org/Meong/releases/download/$version
 curl -fLO "$base/meong-linux-$arch"

@@ -40,7 +40,7 @@ the capability card.
 
 ## Capability card
 
-`f2` or clicking the provider/model in the header opens the card: context
+`f2` or clicking the model on the footer's second line opens the card: context
 window, output limit, vision/tools/reasoning/caching, and cost when the
 gateway reports them. Fields the gateway did not report are listed as
 `not reported:`;

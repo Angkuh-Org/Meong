@@ -1,5 +1,5 @@
 /*
- * Locks the header chip clamp: a model id longer than the header budget must
+ * Locks the header title clamp: a title longer than the header budget must
  * become a UTF-8-safe prefix plus an ellipsis inside cap, and the return value
  * must be display columns, not bytes. The old bug cut by bytes and let the
  * chip write its trailing space past the buffer.

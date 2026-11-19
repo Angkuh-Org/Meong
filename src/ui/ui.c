@@ -294,13 +294,10 @@ static void draw_header(App *a, int rows, int cols) {
     a->brand_x1 = bx + (int)strlen(APP_NAME) + 2;
     wattrset(stdscr, base | A_DIM);
     int sep_x = a->brand_x1 - 1;
-    mvaddstr(0, sep_x, " | ");
-
-    char prov[32];
-    backend_label(a->model, prov, sizeof prov);
+    mvaddstr(0, sep_x, " |  ");
 
     char right[512];
-    /* right/fit/midbuf/prov put ~1.7 KB peak on the draw stack. In-place
+    /* right/fit/midbuf put ~1.6 KB peak on the draw stack. In-place
      * right truncation was measured: -512 B frame, +16 insn and +64 B text,
      * so it was rejected. Revisit only if draw-stack size becomes a
      * constraint. */
@@ -330,7 +327,7 @@ static void draw_header(App *a, int rows, int cols) {
     }
     int right_w = utf8_cols(right);
 
-    int x = sep_x + 3;
+    int x = sep_x + 4;
     int midmax = cols - x - 2;
     if (right_w > 0) {
         int reserve = right_w + 1;
@@ -340,12 +337,12 @@ static void draw_header(App *a, int rows, int cols) {
         midmax -= reserve;
     }
     /* With the icon at 36 cols the right reserve leaves 4 cells, so this
-     * drops the cwd and keeps a 6-cell model chip. */
+     * drops the cwd and keeps a 6-cell title chip. */
     if (midmax < 6) {
         midmax = 6;
         right_w = 0;
     }
-    const char *mid = a->model ? a->model : "";
+    const char *mid = a->title[0] ? a->title : "new chat";
     int midn = utf8_cols(mid);
     char midbuf[256];
     int fitn = header_mid(midbuf, sizeof midbuf, mid, midmax, a->unicode);
@@ -353,22 +350,9 @@ static void draw_header(App *a, int rows, int cols) {
         mid = midbuf;
         midn = fitn;
     }
-    int mstart = x;
-    if (a->color) {
-        wattrset(stdscr, pair_attr(a, chip_pair(prov)) | A_BOLD);
-        mvaddch(0, x, ' ');
-        mvaddstr(0, x + 1, mid);
-        mvaddch(0, x + 1 + midn, ' ');
-    } else {
-        wattrset(stdscr, base | A_BOLD | A_REVERSE);
-        mvaddch(0, x, '[');
-        mvaddstr(0, x + 1, mid);
-        mvaddch(0, x + 1 + midn, ']');
-    }
-    int mend = x + midn + 2;
-    a->model_y = 0;
-    a->model_x0 = mstart;
-    a->model_x1 = mend;
+    wattrset(stdscr, base | (a->title[0] ? A_BOLD : A_DIM));
+    mvaddstr(0, x, mid);
+    int mend = x + midn;
 
     if (right_w > 0) {
         int avail = cols - 2 - mend;
@@ -491,7 +475,7 @@ static int status_rows(const App *a) {
 }
 
 int chat_height(const App *a, int rows) {
-    int h = rows - 5 - status_rows(a);
+    int h = rows - 6 - status_rows(a);
     return h > 1 ? h : 1;
 }
 
@@ -500,7 +484,7 @@ static void draw_status(App *a, int rows, int cols) {
     if (n == 0) {
         return;
     }
-    int y = rows - 4 - n;
+    int y = rows - 5 - n;
     if (a->streaming) {
         double now = now_sec();
         unsigned long long tick = (unsigned long long)(now * SPIN_HZ);
@@ -553,7 +537,7 @@ static void draw_status(App *a, int rows, int cols) {
 }
 
 static void draw_input(App *a, int rows, int cols) {
-    int top = rows - 4;
+    int top = rows - 5;
     int bx = 1;
     int bw = cols - 2;
     if (bw < 8) {
@@ -659,7 +643,7 @@ static void draw_input(App *a, int rows, int cols) {
 }
 
 static void draw_footer(App *a, int rows, int cols, int slash) {
-    int y = rows - 1;
+    int y = rows - 2;
     wattrset(stdscr, pair_attr(a, P_DIM));
     const char *hint;
     if (a->error_open) {
@@ -772,6 +756,19 @@ static void draw_footer(App *a, int rows, int cols, int slash) {
             }
             mvaddstr(y, cols - 1 - rl, right);
         }
+    }
+    /* Second footer line: the full model id owns the model-card click. */
+    if (a->model && a->model[0]) {
+        int my = rows - 1;
+        int mw = (int)strlen(a->model);
+        if (mw > cols - 2) {
+            mw = cols - 2;
+        }
+        wattrset(stdscr, pair_attr(a, P_ACCENT));
+        mvaddnstr(my, 1, a->model, mw);
+        a->model_y = my;
+        a->model_x0 = 1;
+        a->model_x1 = 1 + mw;
     }
 }
 

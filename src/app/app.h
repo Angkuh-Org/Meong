@@ -13,7 +13,7 @@
 
 #define APP_NAME "Meong"
 #ifndef APP_VERSION
-#define APP_VERSION "0.12.0"
+#define APP_VERSION "0.13.0"
 #endif
 #define DEFAULT_MODEL "cc/deepseek/deepseek-v4.1-flash"
 
@@ -147,6 +147,10 @@ typedef struct {
     int cmd_h;
 
     Stream *stream;
+    Stream *title_stream;
+    char title[96];
+    int title_tried;
+    Buf title_buf;
     JDoc stream_doc;
     Buf stream_buf;
     Buf stream_tool_id;

@@ -17,10 +17,17 @@ typedef int (*sse_cb)(void *ud, const char *data, size_t len);
 
 int endpoint_parse(const char *url, Endpoint *ep, char *err, size_t errlen);
 
+/* err may be NULL when errlen is 0. */
 int stream_start(Stream **out, const Endpoint *ep, const char *method,
                  const char *path, const char *body, size_t body_len,
                  int expect_sse, sse_cb cb, void *ud, int idle_timeout_ms,
                  char *err, size_t errlen);
+/* Starts the TCP connect without waiting; DNS resolution stays synchronous.
+ * stream_tick finishes the handshake. err follows the same NULL rule. */
+int stream_start_async(Stream **out, const Endpoint *ep, const char *method,
+                       const char *path, const char *body, size_t body_len,
+                       int expect_sse, sse_cb cb, void *ud, int idle_timeout_ms,
+                       char *err, size_t errlen);
 int stream_tick(Stream *s, size_t *progress);
 void stream_free(Stream *s);
 

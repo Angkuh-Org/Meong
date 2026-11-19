@@ -33,6 +33,8 @@ MODELS = [
 ]
 FLAKY = {}
 FLAKY_LOCK = threading.Lock()
+TITLE_HITS = {"count": 0}
+TITLE_LOCK = threading.Lock()
 CAPABILITIES = {
     "mock/split": {
         "context_window": 131072,
@@ -166,6 +168,15 @@ def usage_obj(model):
     }
 
 
+def is_title_request(req):
+    for m in req.get("messages") or []:
+        if m.get("role") == "system" and "write a title for this chat" in (
+            m.get("content") or ""
+        ).lower():
+            return True
+    return False
+
+
 def tool_result_error(req, model):
     """Check every role:"tool" message against the model's call contract.
 
@@ -216,6 +227,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
             self._json(200, {"ok": True, "service": "mock-paig"})
+            return
+        if self.path.rstrip("/") == "/stats":
+            with TITLE_LOCK:
+                self._json(200, {"title_hits": TITLE_HITS["count"]})
             return
         if self.path.rstrip("/") == "/v1/models":
             data = []
@@ -551,6 +566,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         model = req.get("model", "")
         stream = bool(req.get("stream"))
+
+        if not stream and is_title_request(req):
+            with TITLE_LOCK:
+                TITLE_HITS["count"] += 1
+            # PAIG's opencode free route forces stream:true; answer with SSE
+            # even though the request body asks for false.
+            self._stream_simple(model, "mock chat title")
+            return
 
         if model in TOOL_CONTRACT:
             err = tool_result_error(req, model)
