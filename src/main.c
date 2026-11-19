@@ -81,9 +81,49 @@ static void pet_meong(App *a) {
     a->dirty = 1;
 }
 
+static void perm_move(App *a, int dir) {
+    /* Clamp: a left press on Allow must not roll into Always. */
+    int sel = a->perm_sel + dir;
+    if (sel < 0) {
+        sel = 0;
+    } else if (sel > 2) {
+        sel = 2;
+    }
+    if (sel != a->perm_sel) {
+        a->perm_sel = sel;
+        a->dirty = 1;
+    }
+}
+
+static void perm_choose(App *a, int sel) {
+    a->perm_sel = sel;
+    if (resume_tool_calls(a, sel != 1, sel == 2)) {
+        drain_queue(a);
+    }
+}
+
+static int perm_click(App *a, int y, int x) {
+    if (y != a->perm_btn_y) {
+        return 0;
+    }
+    for (int i = 0; i < 3; i++) {
+        if (x >= a->perm_btn_x0[i] && x <= a->perm_btn_x1[i]) {
+            perm_choose(a, i);
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static void handle_mouse(App *a) {
     MEVENT ev;
     if (getmouse(&ev) != OK) {
+        return;
+    }
+    if (a->tool_pending) {
+        if (ev.bstate & BUTTON1_PRESSED) {
+            perm_click(a, ev.y, ev.x);
+        }
         return;
     }
     if (a->error_open) {
@@ -187,22 +227,33 @@ static void handle_mouse(App *a) {
 
 static void handle_key(App *a, wint_t wch, int special) {
     if (a->tool_pending) {
-        if (!special && (wch == 'y' || wch == 'Y')) {
-            if (resume_tool_calls(a, 1)) {
-                drain_queue(a);
+        if (special) {
+            if (wch == KEY_MOUSE) {
+                handle_mouse(a);
+            } else if (wch == KEY_LEFT || wch == KEY_UP) {
+                perm_move(a, -1);
+            } else if (wch == KEY_RIGHT || wch == KEY_DOWN) {
+                perm_move(a, 1);
+            } else if (wch == KEY_ENTER) {
+                perm_choose(a, a->perm_sel);
+            } else if (wch == KEY_RESIZE) {
+                a->layout_dirty = 1;
+                a->dirty = 1;
             }
             return;
         }
-        if (!special &&
-            (wch == 'n' || wch == 'N' || wch == 27)) {
-            if (resume_tool_calls(a, 0)) {
-                drain_queue(a);
-            }
-            return;
-        }
-        if (!special && wch == 3) {
+        if (wch == '\t') {
+            perm_move(a, 1);
+        } else if (wch == '\n' || wch == '\r' || wch == ' ') {
+            perm_choose(a, a->perm_sel);
+        } else if (wch == 'y' || wch == 'Y') {
+            perm_choose(a, 0);
+        } else if (wch == 'n' || wch == 'N' || wch == 27) {
+            perm_choose(a, 1);
+        } else if (wch == 'a' || wch == 'A') {
+            perm_choose(a, 2);
+        } else if (wch == 3) {
             cancel_tool_chain(a);
-            return;
         }
         return;
     }

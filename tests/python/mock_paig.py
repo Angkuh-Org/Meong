@@ -28,6 +28,7 @@ MODELS = [
     "mock/tools",
     "mock/tools-frag",
     "mock/tools-multi",
+    "mock/tools-session",
     "mock/tools-think",
     "mock/tools-think-slow",
 ]
@@ -100,6 +101,7 @@ CAPABILITIES = {
         "estimated": True,
     },
 }
+CAPABILITIES["mock/tools-session"] = dict(CAPABILITIES["mock/tools-multi"])
 CHUNKS = [3, 11, 1, 7, 19, 5, 13, 2]
 TOOL_CALL_ID = "call_1"
 TOOL_NAME = "read_file"
@@ -108,12 +110,17 @@ TOOL_OK_ARGS = '{"path":"notes.md","start_line":1,"end_line":3}'
 TOOL_DIR_ID = "call_2"
 TOOL_DIR_NAME = "list_dir"
 TOOL_DIR_ARGS = '{"path":"."}'
+TOOL_OTHER_ARGS = '{"path":"/proj/other.txt"}'
 TOOL_CONTRACT = {
     "mock/tools": [(TOOL_CALL_ID, TOOL_NAME)],
     "mock/tools-frag": [(TOOL_CALL_ID, TOOL_NAME)],
     "mock/tools-multi": [
         (TOOL_CALL_ID, TOOL_NAME),
         (TOOL_DIR_ID, TOOL_DIR_NAME),
+    ],
+    "mock/tools-session": [
+        (TOOL_CALL_ID, TOOL_NAME),
+        (TOOL_DIR_ID, TOOL_NAME),
     ],
     "mock/tools-think": [(TOOL_CALL_ID, TOOL_NAME)],
     "mock/tools-think-slow": [(TOOL_CALL_ID, TOOL_NAME)],
@@ -438,6 +445,39 @@ class Handler(BaseHTTPRequestHandler):
                                         "function": {
                                             "name": TOOL_DIR_NAME,
                                             "arguments": TOOL_DIR_ARGS,
+                                        },
+                                    },
+                                ]
+                            },
+                        )
+                    ),
+                    sse_frame(chunk_obj(model, {}, "tool_calls")),
+                    sse_frame(usage_obj(model)),
+                    b"data: [DONE]\n\n",
+                ]
+            elif model == "mock/tools-session":
+                frames = [
+                    sse_frame(
+                        chunk_obj(
+                            model,
+                            {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": TOOL_CALL_ID,
+                                        "type": "function",
+                                        "function": {
+                                            "name": TOOL_NAME,
+                                            "arguments": TOOL_ARGS,
+                                        },
+                                    },
+                                    {
+                                        "index": 1,
+                                        "id": TOOL_DIR_ID,
+                                        "type": "function",
+                                        "function": {
+                                            "name": TOOL_NAME,
+                                            "arguments": TOOL_OTHER_ARGS,
                                         },
                                     },
                                 ]

@@ -469,7 +469,7 @@ static int path_within_cwd(App *a, const char *path) {
 
 static int tool_authorize(void *ud, const char *path) {
     App *a = ud;
-    if (a->yolo || a->tool_allow_all) {
+    if (a->yolo || a->tool_allow_all || a->perm_allow_session) {
         return 1;
     }
     return path_within_cwd(a, path) ? 1 : -1;
@@ -649,6 +649,7 @@ static int run_tool_calls(App *a, int msg_idx) {
             a->tool_pending = 1;
             a->tool_msg_idx = msg_idx;
             a->tool_call_pos = pos;
+            a->perm_sel = 0;
             buf_free(&bounded);
             a->layout_dirty = 1;
             a->dirty = 1;
@@ -678,7 +679,7 @@ static int run_tool_calls(App *a, int msg_idx) {
     return 0;
 }
 
-int resume_tool_calls(App *a, int allow) {
+int resume_tool_calls(App *a, int allow, int allow_session) {
     if (!a->tool_pending) {
         return 0;
     }
@@ -686,6 +687,9 @@ int resume_tool_calls(App *a, int allow) {
     int pos = a->tool_call_pos;
     a->tool_pending = 0;
     a->tool_allow_all = 0;
+    if (allow && allow_session) {
+        a->perm_allow_session = 1;
+    }
     if (msg_idx < 0 || msg_idx >= a->nmsg) {
         a->tool_msg_idx = -1;
         a->tool_call_pos = 0;
@@ -716,6 +720,7 @@ int resume_tool_calls(App *a, int allow) {
             a->tool_pending = 1;
             a->tool_msg_idx = msg_idx;
             a->tool_call_pos = pos;
+            a->perm_sel = 0;
             buf_free(&bounded);
             return 0;
         }

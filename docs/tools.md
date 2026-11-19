@@ -28,9 +28,16 @@ Details:
 ## Permission model
 
 - A path inside runs immediately.
-- A path outside it turns the call row into `? … awaiting y/n` and waits for
-  `y` (allow) or `n` (deny); the composer shows the same prompt. The decision
-  applies to that call only.
+- A path outside it turns the call row into `? name  args` (no inline prompt)
+  and replaces the composer with a permission card. The card repeats the
+  pending call with the model's raw JSON arguments and offers `[ Allow ]`,
+  `[ Reject ]` and `[ Always allow this session ]`. `←→`/`tab` move the
+  highlight, `enter`/`space` activate it, `y`/`n`/`a` are shortcuts, and a
+  click on a button activates it.
+- Allow and Reject apply to that call only. Always lets every outside-cwd path
+  through for the rest of the process (it survives `/clear`) and carries the
+  same credential risk as `--yolo`: later reads can include `~/.ssh/*` and
+  `~/.paig/config.json`.
 - `--yolo` or `MEONG_YOLO=1` disables the prompt and allows every path.
   **This includes credential files** such as `~/.ssh/*` and `~/.paig/config.json`;
   only use it when you accept that a prompt-injected tool result could read

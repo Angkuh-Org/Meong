@@ -30,7 +30,7 @@ void run_command(App *a, const char *cmdline);
 
 int start_generation(App *a);
 int finish_generation(App *a, int ok);
-int resume_tool_calls(App *a, int allow);
+int resume_tool_calls(App *a, int allow, int allow_session);
 void cancel_tool_chain(App *a);
 void cancel_generation(App *a);
 void drain_queue(App *a);

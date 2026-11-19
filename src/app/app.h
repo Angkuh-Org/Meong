@@ -13,7 +13,7 @@
 
 #define APP_NAME "Meong"
 #ifndef APP_VERSION
-#define APP_VERSION "0.13.0"
+#define APP_VERSION "0.14.0"
 #endif
 #define DEFAULT_MODEL "cc/deepseek/deepseek-v4.1-flash"
 
@@ -169,6 +169,11 @@ typedef struct {
     int tool_call_pos;
     int tool_pending;
     int tool_allow_all;
+    int perm_sel;
+    int perm_allow_session;
+    int perm_btn_y;
+    int perm_btn_x0[3];
+    int perm_btn_x1[3];
     char perm_path[1024];
     int tools_enabled;
     int yolo;

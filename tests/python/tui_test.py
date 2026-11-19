@@ -385,7 +385,7 @@ def main():
         if not s.wait_for("ask anything"):
             fail("tool permission: chat screen never appeared", s)
         s.send(b"hi\r")
-        if not s.wait_for("awaiting y/n", 10):
+        if not s.wait_for("[ Reject ]", 10):
             fail("tool permission: prompt never appeared", s)
         s.send(b"n")
         if not s.wait_for("tool said:", 10):
@@ -402,7 +402,7 @@ def main():
         if not s.wait_for("ask anything"):
             fail("tool permission allow: chat screen never appeared", s)
         s.send(b"hi\r")
-        if not s.wait_for("awaiting y/n", 10):
+        if not s.wait_for("[ Reject ]", 10):
             fail("tool permission allow: prompt never appeared", s)
         s.send(b"y")
         if not s.wait_for("tool said:", 10):

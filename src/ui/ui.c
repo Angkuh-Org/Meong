@@ -25,6 +25,9 @@
  * the table length, so adding a frame cannot read past the array */
 #define SPIN_FRAMES(a) ((int)(sizeof(a) / sizeof((a)[0])))
 #define SPIN_HZ 5 /* 5 frames/s: one clockwise turn per 0.8 s */
+/* The permission card replaces the three-row composer and grows four rows up
+ * into the chat area; chat_height reserves exactly that. */
+#define PERM_CARD_H 7
 static const char *spin_utf8[] = {"▖", "▘", "▝", "▗"};
 static const char *spin_ascii[] = {"|", "/", "-", "\\"};
 
@@ -464,6 +467,10 @@ void draw_splash(App *a, int y0, int h, int cols) {
 }
 
 static int status_rows(const App *a) {
+    if (a->tool_pending) {
+        /* The permission card owns the bottom block and carries its hint. */
+        return 0;
+    }
     int n = 0;
     if (a->streaming) {
         n++;
@@ -475,7 +482,8 @@ static int status_rows(const App *a) {
 }
 
 int chat_height(const App *a, int rows) {
-    int h = rows - 6 - status_rows(a);
+    int extra = a->tool_pending ? PERM_CARD_H - 3 : 0;
+    int h = rows - 6 - status_rows(a) - extra;
     return h > 1 ? h : 1;
 }
 
@@ -536,6 +544,139 @@ static void draw_status(App *a, int rows, int cols) {
     }
 }
 
+static const ToolCall *perm_pending_call(const App *a) {
+    if (a->tool_msg_idx < 0 || a->tool_msg_idx >= a->nmsg) {
+        return NULL;
+    }
+    const Msg *m = &a->msgs[a->tool_msg_idx];
+    if (a->tool_call_pos < 0 || a->tool_call_pos >= m->ncalls) {
+        return NULL;
+    }
+    return &m->calls[a->tool_call_pos];
+}
+
+static size_t perm_args_text(const App *a, const ToolCall *call, char *out,
+                             size_t cap) {
+    const char *s = call && call->args ? call->args : a->perm_path;
+    size_t n = call && call->args ? call->args_len : strlen(a->perm_path);
+    size_t o = 0;
+    size_t i = 0;
+    for (; i < n && o + 4 < cap; i++) {
+        unsigned char ch = (unsigned char)s[i];
+        if (ch == '\n' || ch == '\r' || ch == '\t') {
+            ch = ' ';
+        } else if (ch < 32) {
+            continue;
+        }
+        out[o++] = (char)ch;
+    }
+    if (i < n) {
+        out[o++] = '.';
+        out[o++] = '.';
+        out[o++] = '.';
+    }
+    out[o] = '\0';
+    if (o == 0) {
+        out[0] = '{';
+        out[1] = '}';
+        out[2] = '\0';
+        o = 2;
+    }
+    return o;
+}
+
+static void perm_button(const App *a, int y, int x, int bw,
+                        const char *label, int sel) {
+    if (sel) {
+        attr_t sa = a->color ? pair_attr(a, P_SEL) : (attr_t)A_REVERSE;
+        wattrset(stdscr, sa);
+        mvhline(y, x, ' ', bw);
+        wattrset(stdscr, sa | A_BOLD);
+    } else {
+        wattrset(stdscr, pair_attr(a, P_PANEL_ACCENT) | A_BOLD);
+    }
+    mvaddstr(y, x, "[ ");
+    mvaddstr(y, x + 2, label);
+    mvaddstr(y, x + bw - 2, " ]");
+}
+
+static __attribute__((noinline, cold)) void perm_draw(App *a, int rows,
+                                                      int cols) {
+    int w = cols - 2;
+    if (w < 30) {
+        return;
+    }
+    int px = 1;
+    int py = rows - 3 - PERM_CARD_H + 1;
+    if (py < 1) {
+        py = 1;
+    }
+    const ToolCall *call = perm_pending_call(a);
+    const char *name = call && call->name && *call->name ? call->name
+                                                        : "tool";
+    char args[512];
+
+    const char *title = a->unicode ? " permission · outside cwd "
+                                   : " permission - outside cwd ";
+    panel_frame(a, px, py, w, PERM_CARD_H, title, 0);
+
+    int x0 = px + 2;
+    int maxx = px + w - 2;
+    int y = py + 1;
+    wattrset(stdscr, pair_attr(a, P_WAIT) | A_BOLD);
+    mvaddstr(y, x0, sym_tool_ask(a));
+    wattrset(stdscr, pair_attr(a, P_PANEL_ACCENT) | A_BOLD);
+    mvaddnstr(y, x0 + 2, name, maxx - (x0 + 2) + 1);
+    int textw = maxx - (x0 + 2) + 1;
+    size_t args_cap = sizeof args;
+    if (args_cap > (size_t)textw + 4) {
+        args_cap = (size_t)textw + 4;
+    }
+    int args_len = (int)perm_args_text(a, call, args, args_cap);
+    draw_slice(a, y + 1, x0 + 2, args, 0, args_len, maxx,
+               pair_attr(a, P_PANEL_DIM), 0, 0, 0, NULL);
+
+    int avail = maxx - x0 + 1;
+    const char *labels[3] = {"Allow", "Reject", "Always"};
+    int gap = 1;
+    if (avail >= 52) {
+        labels[2] = "Always allow this session";
+        gap = 2;
+    }
+    int by = py + 4;
+    int bx = x0;
+    a->perm_btn_y = by;
+    for (int i = 0; i < 3; i++) {
+        int bw = (int)strlen(labels[i]) + 4;
+        a->perm_btn_x0[i] = bx;
+        a->perm_btn_x1[i] = bx + bw - 1;
+        perm_button(a, by, bx, bw, labels[i], a->perm_sel == i);
+        bx += bw + gap;
+    }
+
+    const char *hint;
+    if (a->unicode) {
+        if (avail >= 59) {
+            hint = "outside cwd · arrows choose · enter · always = this session";
+        } else if (avail >= 43) {
+            hint = "outside cwd · enter · always = this session";
+        } else {
+            hint = "always = this session";
+        }
+    } else {
+        if (avail >= 59) {
+            hint = "outside cwd | arrows choose | enter | always = this session";
+        } else if (avail >= 43) {
+            hint = "outside cwd | enter | always = this session";
+        } else {
+            hint = "always = session";
+        }
+    }
+    wattrset(stdscr, pair_attr(a, P_PANEL_DIM));
+    mvaddnstr(py + 5, x0, hint, avail + 8);
+    a->cursor_on = 0;
+}
+
 static void draw_input(App *a, int rows, int cols) {
     int top = rows - 5;
     int bx = 1;
@@ -582,10 +723,8 @@ static void draw_input(App *a, int rows, int cols) {
     }
     if (a->ilen == 0) {
         wattrset(stdscr, pair_attr(a, P_DIM));
-        const char *ph = a->tool_pending
-                             ? "permission: y allow / n deny"
-                             : (a->streaming ? "queue a message"
-                                             : "ask anything");
+        const char *ph =
+            a->streaming ? "queue a message" : "ask anything";
         mvaddnstr(top + 1, tx, ph, avail);
         a->cur_y = top + 1;
         a->cur_x = tx;
@@ -646,7 +785,15 @@ static void draw_footer(App *a, int rows, int cols, int slash) {
     int y = rows - 2;
     wattrset(stdscr, pair_attr(a, P_DIM));
     const char *hint;
-    if (a->error_open) {
+    if (a->tool_pending) {
+        if (a->unicode) {
+            hint = cols < 64 ? "←→ | enter | y/n/a"
+                             : "←→ choose | enter | y/n/a";
+        } else {
+            hint = cols < 64 ? "left/right | enter | y/n/a"
+                             : "left/right choose | enter | y/n/a";
+        }
+    } else if (a->error_open) {
         hint = a->unicode ? "↑↓ choose | enter | esc close"
                           : "up/down choose | enter | esc close";
     } else if (a->help_open) {
@@ -825,7 +972,11 @@ void ui_draw(App *a) {
         slash_draw(a, rows, cols, idx, slash_n);
     }
     draw_status(a, rows, cols);
-    draw_input(a, rows, cols);
+    if (a->tool_pending) {
+        perm_draw(a, rows, cols);
+    } else {
+        draw_input(a, rows, cols);
+    }
     draw_footer(a, rows, cols, slash_n > 0);
     if (a->picker_open) {
         picker_draw(a, rows, cols);

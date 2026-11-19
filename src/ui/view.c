@@ -836,7 +836,7 @@ static void tool_meta(const App *a, const Msg *m, char *out, size_t cap,
     out[0] = '\0';
     *fold = m->len > 0;
     if (m->tool_state == TOOL_VIEW_ASK) {
-        snprintf(out, cap, "awaiting y/n");
+        /* The permission card is the prompt; the row keeps only `?`. */
         *fold = 0;
         return;
     }
@@ -1198,6 +1198,13 @@ void draw_chat(App *a, int rows, int cols) {
         const char *gut = sym_gutter(a);
         const char *text = m->text;
         if (m->role == ROLE_ASSISTANT) {
+            /* TODO(fix): this fallback can be read with l->len > 0, so
+             * draw_slice walks past the "" NUL.  ASan: 1-byte
+             * global-buffer-overflow in draw_slice (view.c:621) via
+             * draw_chat (view.c:1241), reproduced on HEAD and this branch
+             * in the slow-stream queue test; the plain suite is 79/79.
+             * Audit l->len vs dlen/disp across md_clear/md_reset and the
+             * incremental layout before adding a clamp. */
             text = m->disp ? m->disp : "";
         }
         int off = l->off;
