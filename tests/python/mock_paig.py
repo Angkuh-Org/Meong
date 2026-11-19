@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MODELS = [
     "mock/plain",
+    "mock/effort",
     "mock/split",
     "mock/markdown",
     "mock/slow",
@@ -37,6 +38,16 @@ FLAKY_LOCK = threading.Lock()
 TITLE_HITS = {"count": 0}
 TITLE_LOCK = threading.Lock()
 CAPABILITIES = {
+    "mock/effort": {
+        "context_window": 131072,
+        "max_output_tokens": 65536,
+        "supports_function_calling": True,
+        "supports_reasoning": True,
+        "supports_prompt_caching": True,
+        "input_cost_per_token": 0,
+        "output_cost_per_token": 0,
+        "estimated": True,
+    },
     "mock/split": {
         "context_window": 131072,
         "max_output_tokens": 65536,
@@ -299,6 +310,18 @@ class Handler(BaseHTTPRequestHandler):
                         "stop",
                     )
                 ),
+                sse_frame(usage_obj(model)),
+                b"data: [DONE]\n\n",
+            ]
+            payload = b"".join(frames)
+        elif model == "mock/effort":
+            try:
+                req = json.loads(body)
+            except (ValueError, TypeError):
+                req = {}
+            effort = req.get("reasoning_effort") or "none"
+            frames = [
+                sse_frame(chunk_obj(model, {"content": "effort=%s" % effort})),
                 sse_frame(usage_obj(model)),
                 b"data: [DONE]\n\n",
             ]
@@ -714,6 +737,29 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
 
+        if model == "mock/effort":
+            effort = req.get("reasoning_effort") or "none"
+            self._json(
+                200,
+                {
+                    "id": "chatcmpl-mock",
+                    "object": "chat.completion",
+                    "created": int(time.time()),
+                    "model": model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": "effort=%s" % effort,
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": usage_dict(model, 12, 3),
+                },
+            )
+            return
         if model == "mock/error":
             self._json(
                 429,

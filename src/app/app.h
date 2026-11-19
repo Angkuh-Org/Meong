@@ -13,7 +13,7 @@
 
 #define APP_NAME "Meong"
 #ifndef APP_VERSION
-#define APP_VERSION "0.14.1"
+#define APP_VERSION "0.15.0"
 #endif
 #define DEFAULT_MODEL "cc/deepseek/deepseek-v4.1-flash"
 
@@ -24,6 +24,10 @@
 
 /* Cached for the footer; the sentinel means "recompute on next draw". */
 #define MODEL_CTX_UNSET (-2)
+
+/* PAIG forwards these verbatim; an empty effort is never sent. */
+#define EFFORT_COUNT 6
+extern const char *const EFFORT_LEVELS[EFFORT_COUNT];
 
 enum {
     ROLE_USER,
@@ -120,6 +124,7 @@ typedef struct {
     char *url;
     char *model;
     char *system_prompt;
+    const char *effort;
     char *cwd;
     Msg *msgs;
     int nmsg;
@@ -135,6 +140,8 @@ typedef struct {
     int picker_filter_len;
     int *pick_matches;
     int pick_n;
+    int effort_open;
+    int effort_sel;
     int help_open;
     int pet_open;
     int pet_count;
@@ -196,6 +203,9 @@ typedef struct {
     int model_y;
     int model_x0;
     int model_x1;
+    int effort_y;
+    int effort_x0;
+    int effort_x1;
     int model_open;
     int model_py0;
     int model_py1;
@@ -253,6 +263,11 @@ typedef struct {
     char models_warn[1024];
 } App;
 
+/* A zeroed App carries effort == NULL; readers must go through this. */
+static inline const char *effort_str(const App *a) {
+    return a->effort ? a->effort : "";
+}
+
 void *xcalloc(size_t n, size_t sz);
 
 char *join_path(const char *dir, const char *name);
@@ -260,7 +275,9 @@ char *config_dir(void);
 char *cache_dir(void);
 char *state_file(void);
 char *state_load_model(void);
-void state_save_model(const char *model);
+char *state_load_effort(void);
+void state_save_state(const char *model, const char *effort);
+const char *effort_canon(const char *s);
 
 void msgs_clear(App *a);
 void msg_release(Msg *m);

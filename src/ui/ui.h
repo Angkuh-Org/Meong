@@ -41,6 +41,7 @@ enum {
     P_CHIP_MISTRAL,
     P_CHIP_OTHER,
     P_ERR,
+    P_EFFORT,
 };
 
 static inline attr_t pair_attr(const App *a, int pair) {
@@ -193,6 +194,11 @@ void picker_filter_backspace(App *a);
 void picker_filter_clear(App *a);
 void picker_filter_append(App *a, char c);
 void picker_draw(App *a, int rows, int cols);
+void effort_picker_open(App *a);
+void effort_picker_close(App *a);
+void effort_picker_move(App *a, int dir);
+void effort_picker_accept(App *a);
+void effort_picker_draw(App *a, int rows, int cols);
 void help_draw(App *a, int rows, int cols);
 void pet_draw(App *a, int rows, int cols);
 void model_info_open(App *a);

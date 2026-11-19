@@ -20,9 +20,20 @@ catalogue is not empty. `tab` reopens it; `/model ID` switches directly.
 `--oneshot` does not read the saved model or consult the catalogue: it uses
 `--model`, then `MEONG_MODEL`, then the built-in default.
 
+## Thinking effort
+
+The TUI starts the effort from `--effort`, then `MEONG_EFFORT`, then the saved
+`state`. Leaving all three unset emits no `reasoning_effort` field, so the
+gateway keeps its own default. Picking a model from the picker opens the
+effort picker next; `/effort` reopens it, `/effort LEVEL` sets a level
+directly, and `/effort default` clears it. The footer's second line shows the
+active effort in orange next to the model id (`default` when the field is not
+sent); clicking the effort opens the picker. `--oneshot` follows the same
+flag/env order but ignores the saved effort, like the model.
+
 ## State
 
-The TUI saves the last selected model in `state`:
+The TUI saves the last selected model and thinking effort in `state`:
 
 - `MEONG_CONFIG_DIR` overrides the directory.
 - otherwise `$XDG_CONFIG_HOME/meong`, then `~/.config/meong`.
@@ -42,5 +53,6 @@ the capability card.
 
 `f2` or clicking the model on the footer's second line opens the card: context
 window, output limit, vision/tools/reasoning/caching, and cost when the
-gateway reports them. Fields the gateway did not report are listed as
+gateway reports them, plus the current thinking effort. Fields the gateway did
+not report are listed as
 `not reported:`;

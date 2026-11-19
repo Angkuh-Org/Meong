@@ -50,6 +50,8 @@ void usage(FILE *out) {
             "                     $PAIG_HOST/$PAIG_PORT, or http://127.0.0.1:8899)\n"
             "  --model ID         initial model id (PAIG prefix required)\n"
             "  --system TEXT      system prompt\n"
+            "  --effort LEVEL     thinking effort: off, low, medium, high,\n"
+            "                     xhigh, max, or default\n"
             "  --oneshot TEXT     print one reply and exit\n"
             "  --stream           stream tokens with --oneshot\n"
             "  --list-models      print model ids and exit\n"
@@ -98,6 +100,26 @@ int parse_args(int argc, char **argv, Options *o) {
             o->system = argv[++i];
         } else if (strncmp(arg, "--system=", 9) == 0) {
             o->system = arg + 9;
+        } else if (strcmp(arg, "--effort") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Meong: --effort needs a value\n");
+                return -1;
+            }
+            o->effort = effort_canon(argv[++i]);
+            if (!o->effort) {
+                fprintf(stderr,
+                        "Meong: --effort must be off, low, medium, high, "
+                        "xhigh, max, or default\n");
+                return -1;
+            }
+        } else if (strncmp(arg, "--effort=", 9) == 0) {
+            o->effort = effort_canon(arg + 9);
+            if (!o->effort) {
+                fprintf(stderr,
+                        "Meong: --effort must be off, low, medium, high, "
+                        "xhigh, max, or default\n");
+                return -1;
+            }
         } else if (strcmp(arg, "--oneshot") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "Meong: --oneshot needs a prompt\n");
@@ -145,11 +167,16 @@ int parse_args(int argc, char **argv, Options *o) {
 }
 
 static void build_oneshot_body(Buf *b, const char *model, const char *system,
-                               const char *prompt, int stream) {
+                               const char *effort, const char *prompt,
+                               int stream) {
     buf_adds(b, "{\"model\":");
     buf_json_str(b, model, strlen(model));
-    buf_adds(b, stream ? ",\"stream\":true,\"messages\":[" 
-                       : ",\"stream\":false,\"messages\":[");
+    buf_adds(b, stream ? ",\"stream\":true" : ",\"stream\":false");
+    if (effort && *effort) {
+        buf_adds(b, ",\"reasoning_effort\":");
+        buf_json_str(b, effort, strlen(effort));
+    }
+    buf_adds(b, ",\"messages\":[");
     int first = 1;
     if (system && *system) {
         buf_adds(b, "{\"role\":\"system\",\"content\":");
@@ -229,9 +256,24 @@ int cli_oneshot(const Options *o) {
     if (!model || !*model) {
         model = env_model && *env_model ? env_model : DEFAULT_MODEL;
     }
+    const char *effort = o->effort;
+    if (!effort) {
+        const char *env_effort = getenv("MEONG_EFFORT");
+        if (env_effort && *env_effort) {
+            effort = effort_canon(env_effort);
+            if (!effort) {
+                fprintf(stderr,
+                        "Meong: MEONG_EFFORT must be off, low, medium, high, "
+                        "xhigh, max, or default\n");
+                free(url);
+                return 1;
+            }
+        }
+    }
     Buf body;
     buf_init(&body);
-    build_oneshot_body(&body, model, o->system, o->oneshot, o->stream);
+    build_oneshot_body(&body, model, o->system, effort, o->oneshot,
+                       o->stream);
     CliStream cli;
     memset(&cli, 0, sizeof cli);
     Stream *s = NULL;

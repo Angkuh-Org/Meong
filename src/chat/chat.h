@@ -24,6 +24,7 @@ void slash_accept(App *a);
 void slash_close(App *a);
 
 void set_model(App *a, const char *id);
+void set_effort(App *a, const char *arg);
 void refresh_models(App *a);
 int retry_last(App *a);
 void run_command(App *a, const char *cmdline);

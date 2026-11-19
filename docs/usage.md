@@ -50,10 +50,24 @@ first `enter`.
 | `/model [id]` | open the picker, or switch directly |
 | `/models` | refresh the gateway model list |
 | `/system [p]` | show, set, or clear (`off`) the system prompt |
+| `/effort [level]` | open the effort picker, or set a level directly |
 | `/clear` | forget the conversation |
 | `/retry` | regenerate the last answer |
 | `/help` | help overlay |
 | `/quit` | leave |
+
+## Thinking effort
+
+`--effort`, `MEONG_EFFORT` and `/effort` set `reasoning_effort` on the request.
+There is no built-in default: leaving it unset keeps the field off the wire, so
+the gateway and model decide. `default` clears it.
+
+Levels: `off`, `low`, `medium`, `high`, `xhigh`, `max`. PAIG's `cc` backend
+forwards only those six; the other backends pass the body through, so the
+upstream must understand the field. Picking a model from the picker opens the
+effort picker next; `esc` keeps the current level. Changing the effort
+mid-conversation can invalidate the provider's prompt cache; Meong notes that
+when a change lands after the first turn.
 
 ## Tools
 
@@ -68,6 +82,7 @@ display details, and output bounds: [`tools.md`](tools.md).
 | `MEONG_URL` / `PAIG_URL` | gateway base, default `http://127.0.0.1:8899` |
 | `PAIG_HOST` / `PAIG_PORT` | used when no URL is set |
 | `MEONG_MODEL` | initial model id |
+| `MEONG_EFFORT` | initial thinking effort (`off` … `max`, or `default`) |
 | `MEONG_CONFIG_DIR` | overrides the config directory |
 | `MEONG_CACHE_DIR` | overrides the cache directory |
 | `MEONG_ASCII` | force ASCII borders and symbols |

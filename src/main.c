@@ -16,6 +16,17 @@ static int terminal_small(void) {
     return rows < 10 || cols < 36;
 }
 
+static void picker_accept(App *a) {
+    if (a->pick_n <= 0) {
+        return;
+    }
+    int mi = a->pick_matches[a->picker_sel];
+    const char *id = a->models[mi];
+    picker_close(a);
+    set_model(a, id);
+    effort_picker_open(a);
+}
+
 static void picker_key(App *a, wint_t wch, int special) {
     if (special) {
         if (wch == KEY_UP) {
@@ -37,13 +48,7 @@ static void picker_key(App *a, wint_t wch, int special) {
                 a->picker_sel = a->pick_n > 0 ? a->pick_n - 1 : 0;
             }
         } else if (wch == KEY_ENTER) {
-            if (a->pick_n > 0) {
-                int mi = a->pick_matches[a->picker_sel];
-                char *id = xstrdup(a->models[mi]);
-                picker_close(a);
-                set_model(a, id);
-                free(id);
-            }
+            picker_accept(a);
         } else if (wch == KEY_BACKSPACE) {
             picker_filter_backspace(a);
         } else if (wch == KEY_RESIZE) {
@@ -55,13 +60,7 @@ static void picker_key(App *a, wint_t wch, int special) {
     if (wch == 27 || wch == 3 || wch == 9) {
         picker_close(a);
     } else if (wch == '\n' || wch == '\r') {
-        if (a->pick_n > 0) {
-            int mi = a->pick_matches[a->picker_sel];
-            char *id = xstrdup(a->models[mi]);
-            picker_close(a);
-            set_model(a, id);
-            free(id);
-        }
+        picker_accept(a);
     } else if (wch == 127 || wch == 8) {
         picker_filter_backspace(a);
     } else if (wch == 21) {
@@ -77,6 +76,7 @@ static void pet_meong(App *a) {
     a->pet_open = 1;
     a->help_open = 0;
     a->picker_open = 0;
+    a->effort_open = 0;
     a->model_open = 0;
     a->dirty = 1;
 }
@@ -172,6 +172,16 @@ static void handle_mouse(App *a) {
         a->dirty = 1;
         return;
     }
+    if (a->effort_open) {
+        if (up) {
+            effort_picker_move(a, -1);
+        }
+        if (down) {
+            effort_picker_move(a, 1);
+        }
+        a->dirty = 1;
+        return;
+    }
     if (a->model_open) {
         if (ev.bstate & BUTTON1_PRESSED) {
             int inside = a->model_py0 >= 0 && ev.y >= a->model_py0 &&
@@ -214,6 +224,11 @@ static void handle_mouse(App *a) {
         if (a->brand_y >= 0 && ev.y == a->brand_y &&
             ev.x >= a->brand_x0 && ev.x < a->brand_x1) {
             pet_meong(a);
+            return;
+        }
+        if (a->effort_y >= 0 && ev.y == a->effort_y &&
+            ev.x >= a->effort_x0 && ev.x < a->effort_x1) {
+            effort_picker_open(a);
             return;
         }
         if (a->model_y >= 0 && ev.y == a->model_y &&
@@ -277,6 +292,16 @@ static void handle_key(App *a, wint_t wch, int special) {
         }
         if (wch == KEY_F(2)) {
             model_info_open(a);
+            return;
+        }
+        if (a->effort_open) {
+            if (wch == KEY_UP || wch == KEY_LEFT) {
+                effort_picker_move(a, -1);
+            } else if (wch == KEY_DOWN || wch == KEY_RIGHT) {
+                effort_picker_move(a, 1);
+            } else if (wch == KEY_ENTER) {
+                effort_picker_accept(a);
+            }
             return;
         }
         if (a->model_open) {
@@ -376,6 +401,16 @@ static void handle_key(App *a, wint_t wch, int special) {
     }
     if (a->error_open) {
         error_key(a, wch, 0);
+        return;
+    }
+    if (a->effort_open) {
+        if (wch == 27 || wch == 3) {
+            effort_picker_close(a);
+        } else if (wch == '\n' || wch == '\r') {
+            effort_picker_accept(a);
+        } else if (wch == '\t') {
+            effort_picker_move(a, 1);
+        }
         return;
     }
     if (wch == 3) {
@@ -542,11 +577,26 @@ static int tui_main(const Options *o) {
     }
     App a;
     memset(&a, 0, sizeof a);
+    a.effort = "";
     a.cwd = getcwd(NULL, 0);
     if (!a.cwd) {
         const char *pwd = getenv("PWD");
         if (pwd && *pwd) {
             a.cwd = xstrdup(pwd);
+        }
+    }
+    const char *effort = o->effort;
+    if (!effort) {
+        const char *env_effort = getenv("MEONG_EFFORT");
+        if (env_effort && *env_effort) {
+            effort = effort_canon(env_effort);
+            if (!effort) {
+                fprintf(stderr,
+                        "Meong: MEONG_EFFORT must be off, low, medium, high, "
+                        "xhigh, max, or default\n");
+                free(a.cwd);
+                return 1;
+            }
         }
     }
     a.model_ctx = MODEL_CTX_UNSET;
@@ -615,6 +665,18 @@ static int tui_main(const Options *o) {
         a.model = xstrdup(choose_default_model(&a));
     }
     free(saved_model);
+    if (effort) {
+        a.effort = effort;
+    } else {
+        char *saved_effort = state_load_effort();
+        if (saved_effort) {
+            const char *canon = effort_canon(saved_effort);
+            if (canon && *canon) {
+                a.effort = canon;
+            }
+            free(saved_effort);
+        }
+    }
     a.initial_picker = !explicit_model && a.nmodels > 0;
     if (o->system && *o->system) {
         a.system_prompt = xstrdup(o->system);

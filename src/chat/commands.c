@@ -19,6 +19,17 @@ static void note(App *a, const char *fmt, ...) {
     msg_add(a, ROLE_NOTE, buf);
 }
 
+static int has_request_history(const App *a) {
+    for (int i = 0; i < a->nmsg; i++) {
+        if (a->msgs[i].role == ROLE_USER ||
+            a->msgs[i].role == ROLE_ASSISTANT ||
+            a->msgs[i].role == ROLE_TOOL) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 void set_model(App *a, const char *id) {
     char *trimmed = xstrdup(id);
     char *v = trim_ws(trimmed);
@@ -29,7 +40,7 @@ void set_model(App *a, const char *id) {
     int changed = !a->model || strcmp(a->model, v) != 0;
     free(a->model);
     a->model = xstrdup(v);
-    state_save_model(a->model);
+    state_save_state(a->model, a->effort);
     if (changed) {
         a->have_gen_stats = 0;
         a->model_ctx = MODEL_CTX_UNSET;
@@ -42,8 +53,28 @@ void set_model(App *a, const char *id) {
     a->dirty = 1;
 }
 
-void refresh_models(App *a) {
-    int idx = msg_add(a, ROLE_NOTE, "refreshing models");
+void set_effort(App *a, const char *arg) {
+    const char *current = effort_str(a);
+    if (!arg || !*arg) {
+        note(a, "thinking effort %s (off low medium high xhigh max; default clears)",
+             current[0] ? current : "default");
+        return;
+    }
+    const char *canon = effort_canon(arg);
+    if (!canon) {
+        note(a, "thinking effort must be off, low, medium, high, xhigh, max, or default");
+        return;
+    }
+    int changed = strcmp(current, canon) != 0;
+    a->effort = canon;
+    state_save_state(a->model, a->effort);
+    const char *label = effort_str(a);
+    note(a, "thinking effort %s%s", label[0] ? label : "default",
+         changed && has_request_history(a) ? " (prompt cache may reset)" : "");
+    a->dirty = 1;
+}
+
+void refresh_models(App *a) {    int idx = msg_add(a, ROLE_NOTE, "refreshing models");
     ui_draw(a);
     char err[512];
     char **ids = NULL;
@@ -116,6 +147,7 @@ void run_command(App *a, const char *cmdline) {
     } else if (strcmp(cmd, "help") == 0 || strcmp(cmd, "?") == 0) {
         a->help_open = 1;
         a->picker_open = 0;
+        a->effort_open = 0;
         a->pet_open = 0;
         a->model_open = 0;
         a->dirty = 1;
@@ -149,6 +181,12 @@ void run_command(App *a, const char *cmdline) {
     } else if (strcmp(cmd, "clear") == 0) {
         msgs_clear(a);
         title_reset(a);
+    } else if (strcmp(cmd, "effort") == 0) {
+        if (arg && *arg) {
+            set_effort(a, arg);
+        } else {
+            effort_picker_open(a);
+        }
     } else if (strcmp(cmd, "retry") == 0) {
         retry_last(a);
     } else {
@@ -164,6 +202,7 @@ static const SlashCmd CMDS[] = {
     SLASH_CMD("model", "[id]", "pick a model, or switch directly"),
     SLASH_CMD("models", "", "refresh the gateway model list"),
     SLASH_CMD("system", "[p]", "show, set, or clear the system prompt"),
+    SLASH_CMD("effort", "[level]", "set thinking effort"),
     SLASH_CMD("clear", "", "forget the conversation"),
     SLASH_CMD("retry", "", "regenerate the last answer"),
     SLASH_CMD("help", "", "this panel"),
@@ -226,7 +265,7 @@ int slash_open_list_at(const App *a, int rows, int cols, int *idx, int cap) {
         return 0;
     }
     if (a->cmd_hide || a->picker_open || a->help_open || a->pet_open ||
-        a->model_open || a->error_open) {
+        a->model_open || a->effort_open || a->error_open) {
         return 0;
     }
     int n = slash_matches(a, idx, cap);
