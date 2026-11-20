@@ -10,6 +10,14 @@
 #include "cli/cli.h"
 #include "ui/ui.h"
 
+static int env_true(const char *name) {
+    const char *v = getenv(name);
+    if (!v || !*v) {
+        return 0;
+    }
+    return strcmp(v, "1") == 0 || str_ieq(v, "true") || str_ieq(v, "yes");
+}
+
 static int terminal_small(void) {
     int rows, cols;
     getmaxyx(stdscr, rows, cols);
@@ -83,11 +91,12 @@ static void pet_meong(App *a) {
 
 static void perm_move(App *a, int dir) {
     /* Clamp: a left press on Allow must not roll into Always. */
+    int max = a->perm_ask.action == TOOL_ACT_READ ? 2 : 1;
     int sel = a->perm_sel + dir;
     if (sel < 0) {
         sel = 0;
-    } else if (sel > 2) {
-        sel = 2;
+    } else if (sel > max) {
+        sel = max;
     }
     if (sel != a->perm_sel) {
         a->perm_sel = sel;
@@ -265,7 +274,8 @@ static void handle_key(App *a, wint_t wch, int special) {
             perm_choose(a, 0);
         } else if (wch == 'n' || wch == 'N' || wch == 27) {
             perm_choose(a, 1);
-        } else if (wch == 'a' || wch == 'A') {
+        } else if ((wch == 'a' || wch == 'A') &&
+                   a->perm_ask.action == TOOL_ACT_READ) {
             perm_choose(a, 2);
         } else if (wch == 3) {
             cancel_tool_chain(a);
@@ -585,6 +595,13 @@ static int tui_main(const Options *o) {
             a.cwd = xstrdup(pwd);
         }
     }
+    if (a.cwd) {
+        char *real = realpath(a.cwd, NULL);
+        if (real) {
+            free(a.cwd);
+            a.cwd = real;
+        }
+    }
     const char *effort = o->effort;
     if (!effort) {
         const char *env_effort = getenv("MEONG_EFFORT");
@@ -633,7 +650,19 @@ static int tui_main(const Options *o) {
         a.color = 0;
     }
     a.tools_enabled = 1;
-    a.yolo = o->yolo || (getenv("MEONG_YOLO") && *getenv("MEONG_YOLO"));
+    a.base_perms = 0;
+    if (o->yolo || env_true("MEONG_YOLO")) {
+        a.base_perms |= PERM_YOLO_READ;
+    }
+    if (o->allow_writes || env_true("MEONG_ALLOW_WRITES")) {
+        a.base_perms |= PERM_ALLOW_WRITES;
+    }
+    if (o->allow_exec) {
+        a.base_perms |= PERM_ALLOW_EXEC;
+    }
+    a.session_perms = 0;
+    a.tool_call_approved = 0;
+    a.perm_sel = 1;
 
     char *saved_model = state_load_model();
     int legacy_cache = models_load_cache(&a);

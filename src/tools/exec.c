@@ -42,8 +42,9 @@ enum {
 typedef struct {
     void *ud;
     ToolAuthorizeFn authorize;
-    char *ask_path;
-    size_t ask_cap;
+    ToolAsk *ask;
+    enum ToolAction action;
+    const char *tool;
     Buf *out;
     char *err;
     size_t err_cap;
@@ -59,19 +60,20 @@ static int failf(Ctx *c, const char *fmt, ...) {
     return TOOL_ERR;
 }
 
-/* 1 allows, 0 denies, -1 asks and records the exact path in ask_path. */
+/* 1 allows, 0 denies, -1 asks and records the request in c->ask. */
 static int ctx_allow(Ctx *c, const char *path) {
     if (!c->authorize) {
         return 1;
     }
-    int r = c->authorize(c->ud, path);
-    if (r < 0) {
-        if (c->ask_path && c->ask_cap) {
-            snprintf(c->ask_path, c->ask_cap, "%s", path);
-        }
+    PermReq req;
+    perm_req_init(&req, c->action, c->tool);
+    req.path = path;
+    enum PermDecision r = c->authorize(c->ud, &req);
+    if (r == PERM_ASK) {
+        perm_fill_ask(c->ask, &req);
         return -1;
     }
-    return r ? 1 : 0;
+    return r == PERM_ALLOW ? 1 : 0;
 }
 
 /*
@@ -228,10 +230,11 @@ static void scan_range(FILE *f, long long start, long long end, Buf *body,
 }
 
 int tool_run_read_file(const JDoc *d, int args, void *ud,
-                       ToolAuthorizeFn authorize, char *ask_path,
-                       size_t ask_cap, Buf *out, char *err, size_t err_cap) {
-    Ctx c = {.ud = ud, .authorize = authorize, .ask_path = ask_path,
-             .ask_cap = ask_cap, .out = out, .err = err, .err_cap = err_cap};
+                       ToolAuthorizeFn authorize, ToolAsk *ask, Buf *out,
+                       char *err, size_t err_cap) {
+    Ctx c = {.ud = ud, .authorize = authorize, .ask = ask,
+             .action = TOOL_ACT_READ, .tool = "read_file", .out = out,
+             .err = err, .err_cap = err_cap};
     char *path = NULL;
     FILE *f = NULL;
     Buf body;
@@ -545,10 +548,11 @@ static int walk(Ctx *c, Search *s, const char *dir, int depth) {
 }
 
 int tool_run_search(const JDoc *d, int args, void *ud,
-                    ToolAuthorizeFn authorize, char *ask_path, size_t ask_cap,
-                    Buf *out, char *err, size_t err_cap) {
-    Ctx c = {.ud = ud, .authorize = authorize, .ask_path = ask_path,
-             .ask_cap = ask_cap, .out = out, .err = err, .err_cap = err_cap};
+                    ToolAuthorizeFn authorize, ToolAsk *ask, Buf *out,
+                    char *err, size_t err_cap) {
+    Ctx c = {.ud = ud, .authorize = authorize, .ask = ask,
+             .action = TOOL_ACT_READ, .tool = "search", .out = out,
+             .err = err, .err_cap = err_cap};
     char *pattern = NULL;
     char *path = NULL;
     char *glob = NULL;
@@ -640,10 +644,11 @@ done:
 /* ---- list_dir ----------------------------------------------------------- */
 
 int tool_run_list_dir(const JDoc *d, int args, void *ud,
-                      ToolAuthorizeFn authorize, char *ask_path,
-                      size_t ask_cap, Buf *out, char *err, size_t err_cap) {
-    Ctx c = {.ud = ud, .authorize = authorize, .ask_path = ask_path,
-             .ask_cap = ask_cap, .out = out, .err = err, .err_cap = err_cap};
+                      ToolAuthorizeFn authorize, ToolAsk *ask, Buf *out,
+                      char *err, size_t err_cap) {
+    Ctx c = {.ud = ud, .authorize = authorize, .ask = ask,
+             .action = TOOL_ACT_READ, .tool = "list_dir", .out = out,
+             .err = err, .err_cap = err_cap};
     char *path = NULL;
     DIR *dp = NULL;
     char **names = NULL;

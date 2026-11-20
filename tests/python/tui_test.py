@@ -405,6 +405,41 @@ def main():
     s = Session(["--url", URL, "--model", "mock/tools", "--no-mouse"])
     try:
         if not s.wait_for("ask anything"):
+            fail("tool permission enter: chat screen never appeared", s)
+        s.send(b"hi\r")
+        if not s.wait_for("[ Reject ]", 10):
+            fail("tool permission enter: prompt never appeared", s)
+        s.send(b"\r")
+        if not s.wait_for("tool said:", 10):
+            fail("tool permission enter: default focus did not reject", s)
+        s.send(b"/quit\r")
+        if not s.wait_exit(6):
+            fail("tool permission enter: TUI did not exit", s)
+        print("ok - tui tool permission default focus rejects")
+    finally:
+        s.close()
+
+    s = Session(["--url", URL, "--model", "mock/tools", "--no-mouse"],
+                env_overrides={"MEONG_YOLO": "0"})
+    try:
+        if not s.wait_for("ask anything"):
+            fail("MEONG_YOLO=0: chat screen never appeared", s)
+        s.send(b"hi\r")
+        if not s.wait_for("[ Reject ]", 10):
+            fail("MEONG_YOLO=0 did not disable yolo", s)
+        s.send(b"n")
+        if not s.wait_for("tool said:", 10):
+            fail("MEONG_YOLO=0: denied call did not reach the model", s)
+        s.send(b"/quit\r")
+        if not s.wait_exit(6):
+            fail("MEONG_YOLO=0: TUI did not exit", s)
+        print("ok - MEONG_YOLO=0 stays off")
+    finally:
+        s.close()
+
+    s = Session(["--url", URL, "--model", "mock/tools", "--no-mouse"])
+    try:
+        if not s.wait_for("ask anything"):
             fail("tool permission allow: chat screen never appeared", s)
         s.send(b"hi\r")
         if not s.wait_for("[ Reject ]", 10):

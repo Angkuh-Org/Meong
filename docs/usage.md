@@ -72,8 +72,11 @@ when a change lands after the first turn.
 ## Tools
 
 Read-only tools render as a tree under the assistant; rows show status,
-shortened arguments, and duration/size, and open into a box. Permission,
-display details, and output bounds: [`tools.md`](tools.md).
+shortened arguments, and duration/size, and open into a box. An outside-cwd
+read replaces the composer with a permission card that opens on Reject.
+`--yolo` covers outside-cwd reads only; `--allow-writes` and `--allow-exec`
+are the separate standing opt-outs for the future mutate and exec classes.
+Permission, display details, and output bounds: [`tools.md`](tools.md).
 
 ## Configuration
 
@@ -88,7 +91,8 @@ display details, and output bounds: [`tools.md`](tools.md).
 | `MEONG_ASCII` | force ASCII borders and symbols |
 | `MEONG_NO_NERD` | hide the Nerd Font cat and permission shield |
 | `MEONG_NO_MOUSE` | disable mouse and touch input |
-| `MEONG_YOLO` | allow tools outside the working directory |
+| `MEONG_YOLO` | allow reads outside the working directory (not writes/exec) |
+| `MEONG_ALLOW_WRITES` | allow mutating tools without a prompt |
 | `NO_COLOR` | disable color |
 | `MEONG_WIRE_DEBUG` | dump parsed HTTP/SSE lines to stderr |
 

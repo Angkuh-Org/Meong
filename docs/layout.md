@@ -96,8 +96,12 @@ User contract: [`tools.md`](tools.md).
 `tool_call_summary()`, the display-only shortening of a call's arguments;
 `exec.c` implements the three read-only handlers (`read_file` with a metadata
 header and line range, `search` with glob/context, `list_dir` with type/size).
-Every filesystem path goes through the `ToolAuthorizeFn` callback: cwd paths
-run, outside paths ask the TUI, and `--yolo` allows all. Results larger than
+Every tool is registered with an action class in `tools.c`; `tool_execute()`
+runs the pre-dispatch gate before the handler, and `perm.c` holds the pure
+policy. A read path inside the cwd runs, an outside path asks the TUI;
+`mutate`/`exec` always ask unless the matching `--allow-writes`/`--allow-exec`
+is set. `--yolo` covers outside-cwd reads only. `search` keeps a per-file
+check so a multi-path call cannot bypass the class gate. Results larger than
 16 KiB keep a head/tail inline and spill the full text under the cache
 directory. `chat.c` runs at most eight tool rounds and fills an
 `[interrupted by user]` result into every unanswered call position on cancel.

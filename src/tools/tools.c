@@ -59,6 +59,50 @@ const char *tools_json(void) {
     return TOOLS_JSON;
 }
 
+typedef int (*ToolRunFn)(const JDoc *d, int root, void *ud,
+                         ToolAuthorizeFn authorize, ToolAsk *ask,
+                         Buf *out, char *err, size_t err_cap);
+
+/*
+ * The action class is a property of registration. A new handler cannot pick
+ * its own class or forget the gate: tool_execute() finds the entry here and
+ * runs the pre-dispatch check before calling run().
+ */
+typedef struct {
+    const char *name;
+    ToolRunFn run;
+    enum ToolAction action;
+    const char *resource_key;
+} ToolDef;
+
+static const ToolDef TOOL_DEFS[] = {
+    {"read_file", tool_run_read_file, TOOL_ACT_READ, "path"},
+    {"search", tool_run_search, TOOL_ACT_READ, "path"},
+    {"list_dir", tool_run_list_dir, TOOL_ACT_READ, "path"},
+};
+
+static const ToolDef *tool_def(const char *name) {
+    for (size_t i = 0; i < sizeof TOOL_DEFS / sizeof TOOL_DEFS[0]; i++) {
+        if (strcmp(TOOL_DEFS[i].name, name) == 0) {
+            return &TOOL_DEFS[i];
+        }
+    }
+    return NULL;
+}
+
+/*
+ * TODO(perf): one jstring_alloc/free per tool call, and the handler then
+ * re-reads the same key (plus a second perm_decide resolve). Forward a
+ * borrowed pointer+len, or the dup, through ToolDef::run instead.
+ */
+static char *arg_dup(const JDoc *d, int root, const char *key) {
+    int t = jget(d, root, key);
+    if (t < 0 || jtype(d, t) != J_STRING) {
+        return NULL;
+    }
+    return jstring_alloc(d, t);
+}
+
 static int fail(char *err, size_t err_cap, const char *msg) {
     if (err && err_cap) {
         snprintf(err, err_cap, "%s", msg);
@@ -67,16 +111,13 @@ static int fail(char *err, size_t err_cap, const char *msg) {
 }
 
 int tool_execute(const char *name, const char *args, size_t args_len,
-                 void *ud, ToolAuthorizeFn authorize,
-                 char *ask_path, size_t ask_cap,
+                 void *ud, ToolAuthorizeFn authorize, ToolAsk *ask,
                  Buf *out, char *err, size_t err_cap) {
     static const char empty[] = "{}";
     if (err && err_cap) {
         err[0] = '\0';
     }
-    if (ask_path && ask_cap) {
-        ask_path[0] = '\0';
-    }
+    perm_ask_clear(ask);
     if (!out) {
         return fail(err, err_cap, "ERROR: no output buffer");
     }
@@ -102,21 +143,50 @@ int tool_execute(const char *name, const char *args, size_t args_len,
         return fail(err, err_cap, "ERROR: arguments must be a JSON object");
     }
 
-    int rc;
-    if (strcmp(name, "read_file") == 0) {
-        rc = tool_run_read_file(&d, root, ud, authorize, ask_path, ask_cap,
-                                out, err, err_cap);
-    } else if (strcmp(name, "search") == 0) {
-        rc = tool_run_search(&d, root, ud, authorize, ask_path, ask_cap, out,
-                             err, err_cap);
-    } else if (strcmp(name, "list_dir") == 0) {
-        rc = tool_run_list_dir(&d, root, ud, authorize, ask_path, ask_cap, out,
-                               err, err_cap);
-    } else {
+    const ToolDef *def = tool_def(name);
+    if (!def) {
         char msg[160];
         snprintf(msg, sizeof msg, "ERROR: unknown tool: %s", name);
-        rc = fail(err, err_cap, msg);
+        jdoc_free(&d);
+        return fail(err, err_cap, msg);
     }
+
+    /*
+     * Gate the call's top-level resource before any handler runs. A missing
+     * or non-string resource is left to the handler, which produces the
+     * specific argument error; a present one cannot skip the class check.
+     */
+    char *resource =
+        def->resource_key ? arg_dup(&d, root, def->resource_key) : NULL;
+    PermReq req;
+    perm_req_init(&req, def->action, def->name);
+    if (def->action == TOOL_ACT_EXEC) {
+        req.command = resource;
+    } else {
+        req.path = resource;
+    }
+    if (resource && authorize) {
+        enum PermDecision dec = authorize(ud, &req);
+        if (dec == PERM_DENY) {
+            if (err && err_cap) {
+                snprintf(err, err_cap, "ERROR: permission denied: %s",
+                         resource);
+            }
+            free(resource);
+            jdoc_free(&d);
+            return TOOL_ERR;
+        }
+        if (dec == PERM_ASK) {
+            perm_fill_ask(ask, &req);
+            free(resource);
+            jdoc_free(&d);
+            buf_clear(out);
+            return TOOL_NEED_PERM;
+        }
+    }
+    free(resource);
+
+    int rc = def->run(&d, root, ud, authorize, ask, out, err, err_cap);
     jdoc_free(&d);
     if (rc == TOOL_NEED_PERM) {
         /* Nothing was executed: drop whatever a partial walk had produced. */

@@ -430,54 +430,8 @@ int start_generation(App *a) {
     return 0;
 }
 
-static int path_within_cwd(App *a, const char *path) {
-    char cwd[PATH_MAX];
-    if (!a->cwd || !realpath(a->cwd, cwd)) {
-        return 0;
-    }
-    char *abs;
-    if (path[0] == '/') {
-        abs = xstrdup(path);
-    } else {
-        size_t need = strlen(a->cwd) + strlen(path) + 2;
-        abs = xmalloc(need);
-        snprintf(abs, need, "%s/%s", a->cwd, path);
-    }
-    char *resolved = realpath(abs, NULL);
-    if (!resolved) {
-        char *slash = strrchr(abs, '/');
-        if (!slash) {
-            free(abs);
-            return 0;
-        }
-        char *base = xstrdup(slash + 1);
-        *slash = '\0';
-        char *parent = realpath(abs, NULL);
-        if (!parent) {
-            free(base);
-            free(abs);
-            return 0;
-        }
-        size_t need = strlen(parent) + strlen(base) + 2;
-        resolved = xmalloc(need);
-        snprintf(resolved, need, "%s/%s", parent, base);
-        free(parent);
-        free(base);
-    }
-    free(abs);
-    size_t n = strlen(cwd);
-    int inside = strncmp(resolved, cwd, n) == 0 &&
-                 (resolved[n] == '/' || resolved[n] == '\0');
-    free(resolved);
-    return inside;
-}
-
-static int tool_authorize(void *ud, const char *path) {
-    App *a = ud;
-    if (a->yolo || a->tool_allow_all || a->perm_allow_session) {
-        return 1;
-    }
-    return path_within_cwd(a, path) ? 1 : -1;
+static enum PermDecision tool_authorize(void *ud, PermReq *req) {
+    return perm_decide((const PermPolicy *)ud, req);
 }
 
 static long count_text_lines(const char *s, size_t n) {
@@ -583,8 +537,8 @@ static void settle_tool_calls(App *a, int msg_idx) {
     }
 }
 
-/* Frame is 5,792 B at -O2 (-fstack-usage). The worst nested TUI path sums
- * to 92,848 B (1.1% of the 8 MiB main-thread stack), so spill stays. */
+/* Frame is 9,456 B at -O2 (measured Phase 1; 5,792 B before). The worst
+ * nested TUI path was 92,848 B of 8 MiB, so spill stays. */
 static int run_tool(App *a, const ToolCall *call, Buf *bounded, char *err,
                     size_t err_cap, double *sec, size_t *bytes,
                     long *lines) {
@@ -592,19 +546,25 @@ static int run_tool(App *a, const ToolCall *call, Buf *bounded, char *err,
     Buf out;
     buf_init(&out);
     buf_init(bounded);
-    char ask[1024];
-    ask[0] = '\0';
+    /*
+     * TODO(mem): this is the 9,456 B frame; ToolAsk by value is 4,664 B and
+     * only TOOL_NEED_PERM consumes it. Reuse or heap the ask record so the
+     * frame returns to the 5,792 B measured before the permission classes.
+     */
+    ToolAsk ask;
+    PermPolicy pol = {.cwd = a->cwd,
+                      .perms = a->base_perms | a->session_perms,
+                      .call_approved = a->tool_call_approved};
     if (err && err_cap) {
         err[0] = '\0';
     }
     *bytes = 0;
     *lines = 0;
-    int r = tool_execute(call->name, call->args, call->args_len, a,
-                         tool_authorize, ask, sizeof ask, &out, err,
-                         err_cap);
+    int r = tool_execute(call->name, call->args, call->args_len, &pol,
+                         tool_authorize, &ask, &out, err, err_cap);
     *sec = now_sec() - t0;
     if (r == TOOL_NEED_PERM) {
-        snprintf(a->perm_path, sizeof a->perm_path, "%s", ask);
+        a->perm_ask = ask;
         buf_free(&out);
         return r;
     }
@@ -654,7 +614,7 @@ static int run_tool_calls(App *a, int msg_idx) {
             a->tool_pending = 1;
             a->tool_msg_idx = msg_idx;
             a->tool_call_pos = pos;
-            a->perm_sel = 0;
+            a->perm_sel = 1;
             buf_free(&bounded);
             a->layout_dirty = 1;
             a->dirty = 1;
@@ -691,9 +651,9 @@ int resume_tool_calls(App *a, int allow, int allow_session) {
     int msg_idx = a->tool_msg_idx;
     int pos = a->tool_call_pos;
     a->tool_pending = 0;
-    a->tool_allow_all = 0;
-    if (allow && allow_session) {
-        a->perm_allow_session = 1;
+    a->tool_call_approved = 0;
+    if (allow && allow_session && a->perm_ask.action == TOOL_ACT_READ) {
+        a->session_perms |= PERM_SESSION_READ;
     }
     if (msg_idx < 0 || msg_idx >= a->nmsg) {
         a->tool_msg_idx = -1;
@@ -711,7 +671,7 @@ int resume_tool_calls(App *a, int allow, int allow_session) {
                          0, 0, 0);
         a->tool_call_pos = pos + 1;
     } else {
-        a->tool_allow_all = 1;
+        a->tool_call_approved = 1;
         Buf bounded;
         char err[1024];
         double sec = 0;
@@ -719,13 +679,13 @@ int resume_tool_calls(App *a, int allow, int allow_session) {
         long lines = 0;
         int r = run_tool(a, &call, &bounded, err, sizeof err, &sec, &bytes,
                          &lines);
-        a->tool_allow_all = 0;
+        a->tool_call_approved = 0;
         if (r == TOOL_NEED_PERM) {
             fill_tool_result(a, idx, TOOL_VIEW_ASK, "", 0, 0, 0);
             a->tool_pending = 1;
             a->tool_msg_idx = msg_idx;
             a->tool_call_pos = pos;
-            a->perm_sel = 0;
+            a->perm_sel = 1;
             buf_free(&bounded);
             return 0;
         }
@@ -749,7 +709,7 @@ void cancel_tool_chain(App *a) {
     }
     int msg_idx = a->tool_msg_idx;
     a->tool_pending = 0;
-    a->tool_allow_all = 0;
+    a->tool_call_approved = 0;
     a->tool_call_pos = 0;
     a->tool_msg_idx = -1;
     settle_tool_calls(a, msg_idx);
@@ -930,7 +890,7 @@ void cancel_generation(App *a) {
         }
     }
     a->tool_pending = 0;
-    a->tool_allow_all = 0;
+    a->tool_call_approved = 0;
     a->tool_call_pos = 0;
     a->tool_msg_idx = -1;
     stream_free(a->stream);
@@ -952,7 +912,7 @@ static int send_text(App *a, const char *text) {
     msg_add(a, ROLE_USER, text);
     a->tool_round = 0;
     a->tool_pending = 0;
-    a->tool_allow_all = 0;
+    a->tool_call_approved = 0;
     a->tool_call_pos = 0;
     a->tool_msg_idx = -1;
     if (start_generation(a) != 0) {

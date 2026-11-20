@@ -45,58 +45,69 @@ static char *join(const char *dir, const char *name) {
     return p;
 }
 
-static int auth_allow(void *ud, const char *path) {
+static enum PermDecision auth_allow(void *ud, PermReq *req) {
     (void)ud;
-    (void)path;
-    return 1;
+    (void)req;
+    return PERM_ALLOW;
 }
 
-static int auth_deny(void *ud, const char *path) {
+static enum PermDecision auth_deny(void *ud, PermReq *req) {
     (void)ud;
-    (void)path;
-    return 0;
+    (void)req;
+    return PERM_DENY;
 }
 
-static int auth_ask(void *ud, const char *path) {
+static enum PermDecision auth_ask(void *ud, PermReq *req) {
     (void)ud;
-    (void)path;
-    return -1;
+    (void)req;
+    return PERM_ASK;
 }
 
 typedef struct {
     char last[1024];
+    char tool[32];
+    enum ToolAction action;
     int calls;
 } Rec;
 
-static int auth_rec(void *ud, const char *path) {
+static enum PermDecision auth_rec(void *ud, PermReq *req) {
     Rec *r = ud;
     r->calls++;
-    snprintf(r->last, sizeof r->last, "%s", path);
-    return 1;
+    snprintf(r->last, sizeof r->last, "%s", req->path ? req->path : "");
+    snprintf(r->tool, sizeof r->tool, "%s", req->tool ? req->tool : "");
+    r->action = req->action;
+    return PERM_ALLOW;
 }
 
 /* Allow exactly one path, ask about everything else. */
-static int auth_ask_below(void *ud, const char *path) {
-    return strcmp((const char *)ud, path) == 0 ? 1 : -1;
+static enum PermDecision auth_ask_below(void *ud, PermReq *req) {
+    const char *allowed = ud;
+    return req->path && strcmp(allowed, req->path) == 0 ? PERM_ALLOW
+                                                        : PERM_ASK;
 }
 
 /* Allow exactly one path, deny everything else. */
-static int auth_deny_files(void *ud, const char *path) {
-    return strcmp((const char *)ud, path) == 0 ? 1 : 0;
+static enum PermDecision auth_deny_files(void *ud, PermReq *req) {
+    const char *allowed = ud;
+    return req->path && strcmp(allowed, req->path) == 0 ? PERM_ALLOW
+                                                        : PERM_DENY;
+}
+
+/* The production policy, for the pre-dispatch root test. */
+static enum PermDecision auth_policy(void *ud, PermReq *req) {
+    return perm_decide((const PermPolicy *)ud, req);
 }
 
 static int run(const char *name, const char *args, ToolAuthorizeFn auth,
-               void *ud, Buf *out, char *ask, size_t ask_cap, char *err,
+               void *ud, Buf *out, ToolAsk *ask, char *err,
                size_t err_cap) {
     buf_init(out);
-    if (ask && ask_cap) {
-        ask[0] = '\0';
-    }
+    perm_ask_clear(ask);
     if (err && err_cap) {
         err[0] = '\0';
     }
     return tool_execute(name, args, args ? strlen(args) : 0, ud, auth, ask,
-                        ask_cap, out, err, err_cap);
+                        out, err, err_cap);
 }
 
 /* ---- catalog ------------------------------------------------------------ */
@@ -214,12 +225,11 @@ static void test_read_file(const char *dir) {
     char args[2048];
     char want[64];
     Buf out;
-    char ask[1024];
+    ToolAsk ask;
     char err[512];
 
     snprintf(args, sizeof args, "{\"path\":\"%s\"}", path);
-    int rc = run("read_file", args, auth_allow, NULL, &out, ask, sizeof ask,
-                 err, sizeof err);
+    int rc = run("read_file", args, auth_allow, NULL, &out, &ask,                  err, sizeof err);
     ok(rc == TOOL_OK, "read_file returns TOOL_OK");
     snprintf(want, sizeof want, "bytes: %zu", strlen(text));
     ok(out.p && strstr(out.p, want) != NULL, "read_file reports byte size");
@@ -234,7 +244,7 @@ static void test_read_file(const char *dir) {
 
     snprintf(args, sizeof args,
              "{\"path\":\"%s\",\"start_line\":2,\"end_line\":3}", path);
-    rc = run("read_file", args, auth_allow, NULL, &out, ask, sizeof ask, err,
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
              sizeof err);
     ok(rc == TOOL_OK, "read_file range returns TOOL_OK");
     ok(out.p && strstr(out.p, "2: bravo") && strstr(out.p, "3: charlie"),
@@ -244,7 +254,7 @@ static void test_read_file(const char *dir) {
     buf_free(&out);
 
     snprintf(args, sizeof args, "{\"path\":\"%s\",\"start_line\":9}", path);
-    rc = run("read_file", args, auth_allow, NULL, &out, ask, sizeof ask, err,
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
              sizeof err);
     ok(rc == TOOL_OK && out.p && strstr(out.p, "no lines in range"),
        "read_file reports an empty range");
@@ -254,14 +264,14 @@ static void test_read_file(const char *dir) {
     static const char blob[] = {'a', 'b', 0, 'c', 'd'};
     put(bin, blob, sizeof blob);
     snprintf(args, sizeof args, "{\"path\":\"%s\"}", bin);
-    rc = run("read_file", args, auth_allow, NULL, &out, ask, sizeof ask, err,
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
              sizeof err);
     ok(rc == TOOL_ERR && strstr(err, "binary") != NULL,
        "read_file refuses a binary file");
     buf_free(&out);
 
     snprintf(args, sizeof args, "{\"path\":\"%s/nope.txt\"}", dir);
-    rc = run("read_file", args, auth_allow, NULL, &out, ask, sizeof ask, err,
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
              sizeof err);
     ok(rc == TOOL_ERR && strstr(err, "ERROR:") == err,
        "read_file reports a missing file as ERROR:");
@@ -271,8 +281,7 @@ static void test_read_file(const char *dir) {
     char *fifo = join(dir, "pipe");
     if (mkfifo(fifo, 0600) == 0) {
         snprintf(args, sizeof args, "{\"path\":\"%s\"}", fifo);
-        rc = run("read_file", args, auth_allow, NULL, &out, ask, sizeof ask,
-                 err, sizeof err);
+        rc = run("read_file", args, auth_allow, NULL, &out, &ask,                  err, sizeof err);
         ok(rc == TOOL_ERR && strstr(err, "not a regular file") != NULL,
            "read_file rejects a FIFO without blocking");
         buf_free(&out);
@@ -280,7 +289,7 @@ static void test_read_file(const char *dir) {
     free(fifo);
 
     snprintf(args, sizeof args, "{\"path\":\"%s\",\"start_line\":0}", path);
-    rc = run("read_file", args, auth_allow, NULL, &out, ask, sizeof ask, err,
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
              sizeof err);
     ok(rc == TOOL_ERR && strstr(err, "start_line") != NULL,
        "read_file rejects start_line < 1");
@@ -288,7 +297,7 @@ static void test_read_file(const char *dir) {
 
     /* start_line past the default window must not need an explicit end_line. */
     snprintf(args, sizeof args, "{\"path\":\"%s\",\"start_line\":4}", path);
-    rc = run("read_file", args, auth_allow, NULL, &out, ask, sizeof ask, err,
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
              sizeof err);
     ok(rc == TOOL_OK && out.p && strstr(out.p, "4: delta") &&
            strstr(out.p, "5: echo"),
@@ -298,7 +307,7 @@ static void test_read_file(const char *dir) {
     /* null is how callers spell an unused optional; it must mean "absent". */
     snprintf(args, sizeof args,
              "{\"path\":\"%s\",\"start_line\":null,\"end_line\":null}", path);
-    rc = run("read_file", args, auth_allow, NULL, &out, ask, sizeof ask, err,
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
              sizeof err);
     ok(rc == TOOL_OK && out.p && strstr(out.p, "1: alpha") &&
            strstr(out.p, "5: echo"),
@@ -314,7 +323,7 @@ static void test_read_file(const char *dir) {
     }
     put(big, textbuf.p, textbuf.len);
     snprintf(args, sizeof args, "{\"path\":\"%s\",\"end_line\":2000}", big);
-    rc = run("read_file", args, auth_allow, NULL, &out, ask, sizeof ask, err,
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
              sizeof err);
     ok(rc == TOOL_OK && out.p && strstr(out.p, "lines: 2000") != NULL,
        "read_file counts every line of a large file");
@@ -340,7 +349,7 @@ static void test_read_file(const char *dir) {
     put(wide, widebuf.p, widebuf.len);
     buf_free(&widebuf);
     snprintf(args, sizeof args, "{\"path\":\"%s\",\"start_line\":2}", wide);
-    rc = run("read_file", args, auth_allow, NULL, &out, ask, sizeof ask, err,
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
              sizeof err);
     ok(rc == TOOL_OK && out.p && count_of(out.p, "2: ") == 1,
        "read_file prefixes a line that straddles a read chunk once");
@@ -369,10 +378,10 @@ static void test_list_dir(const char *dir) {
 
     char args[2048];
     Buf out;
-    char ask[1024];
+    ToolAsk ask;
     char err[512];
     snprintf(args, sizeof args, "{\"path\":\"%s\"}", dir);
-    int rc = run("list_dir", args, auth_allow, NULL, &out, ask, sizeof ask, err,
+    int rc = run("list_dir", args, auth_allow, NULL, &out, &ask, err,
                  sizeof err);
     ok(rc == TOOL_OK, "list_dir returns TOOL_OK");
     ok(out.p && strstr(out.p, "d adir\n") != NULL,
@@ -390,7 +399,7 @@ static void test_list_dir(const char *dir) {
     char *empty = join(dir, "empty");
     mkdir(empty, 0700);
     snprintf(args, sizeof args, "{\"path\":\"%s\"}", empty);
-    rc = run("list_dir", args, auth_allow, NULL, &out, ask, sizeof ask, err,
+    rc = run("list_dir", args, auth_allow, NULL, &out, &ask, err,
              sizeof err);
     ok(rc == TOOL_OK && out.p && strstr(out.p, "[empty directory]") != NULL,
        "list_dir says so when the directory is empty");
@@ -415,13 +424,13 @@ static void test_search(const char *dir, const char *scratch) {
     char args[2048];
     char want[1024];
     Buf out;
-    char ask[1024];
+    ToolAsk ask;
     char err[512];
 
     snprintf(args, sizeof args,
              "{\"pattern\":\"needle\",\"path\":\"%s\",\"context_lines\":1}",
              dir);
-    int rc = run("search", args, auth_allow, NULL, &out, ask, sizeof ask, err,
+    int rc = run("search", args, auth_allow, NULL, &out, &ask, err,
                  sizeof err);
     ok(rc == TOOL_OK, "search returns TOOL_OK");
     snprintf(want, sizeof want, "%s:3: needle here", notes);
@@ -449,7 +458,7 @@ static void test_search(const char *dir, const char *scratch) {
              "{\"pattern\":\"needle\",\"path\":\"%s\",\"glob\":\"wrap.txt\","
              "\"context_lines\":2}",
              dir);
-    rc = run("search", args, auth_allow, NULL, &out, ask, sizeof ask, err,
+    rc = run("search", args, auth_allow, NULL, &out, &ask, err,
              sizeof err);
     snprintf(want, sizeof want,
              "  %s:1: l1\n  %s:2: l2\n%s:3: needle A\n  %s:4: l4\n"
@@ -462,7 +471,7 @@ static void test_search(const char *dir, const char *scratch) {
 
     snprintf(args, sizeof args,
              "{\"pattern\":\"needle\",\"path\":\"%s\",\"glob\":\"*.c\"}", dir);
-    rc = run("search", args, auth_allow, NULL, &out, ask, sizeof ask, err,
+    rc = run("search", args, auth_allow, NULL, &out, &ask, err,
              sizeof err);
     ok(rc == TOOL_OK && out.p && strstr(out.p, "other.c:2:") != NULL &&
            strstr(out.p, "notes.txt") == NULL,
@@ -471,7 +480,7 @@ static void test_search(const char *dir, const char *scratch) {
 
     snprintf(args, sizeof args,
              "{\"pattern\":\"needle\",\"path\":\"%s\",\"glob\":null}", dir);
-    rc = run("search", args, auth_allow, NULL, &out, ask, sizeof ask, err,
+    rc = run("search", args, auth_allow, NULL, &out, &ask, err,
              sizeof err);
     snprintf(want, sizeof want, "%s:3: needle here", notes);
     ok(rc == TOOL_OK && out.p && strstr(out.p, want) != NULL,
@@ -480,14 +489,14 @@ static void test_search(const char *dir, const char *scratch) {
 
     snprintf(args, sizeof args, "{\"pattern\":\"[unclosed\",\"path\":\"%s\"}",
              dir);
-    rc = run("search", args, auth_allow, NULL, &out, ask, sizeof ask, err,
+    rc = run("search", args, auth_allow, NULL, &out, &ask, err,
              sizeof err);
     ok(rc == TOOL_ERR && strstr(err, "regex") != NULL,
        "search rejects an invalid regex");
     buf_free(&out);
 
     snprintf(args, sizeof args, "{\"pattern\":\"zzz\",\"path\":\"%s\"}", dir);
-    rc = run("search", args, auth_allow, NULL, &out, ask, sizeof ask, err,
+    rc = run("search", args, auth_allow, NULL, &out, &ask, err,
              sizeof err);
     ok(rc == TOOL_OK && out.p && strstr(out.p, "[no matches]") != NULL,
        "search reports no matches");
@@ -514,7 +523,7 @@ static void test_search(const char *dir, const char *scratch) {
     }
     snprintf(args, sizeof args, "{\"pattern\":\"needle\",\"path\":\"%s\"}",
              dir);
-    rc = run("search", args, auth_allow, NULL, &out, ask, sizeof ask, err,
+    rc = run("search", args, auth_allow, NULL, &out, &ask, err,
              sizeof err);
     ok(rc == TOOL_OK && out.p && strstr(out.p, "hidden.txt") == NULL,
        "search skips .git, build and node_modules");
@@ -523,8 +532,8 @@ static void test_search(const char *dir, const char *scratch) {
     buf_free(&out);
 
     /* A deny (not an ask) skips the file but must not hide the skip. */
-    rc = run("search", args, auth_deny_files, (void *)dir, &out, ask,
-             sizeof ask, err, sizeof err);
+    rc = run("search", args, auth_deny_files, (void *)dir, &out, &ask,
+             err, sizeof err);
     ok(rc == TOOL_OK && out.p && strstr(out.p, "files skipped (permission)"),
        "search reports files it skipped by permission");
     buf_free(&out);
@@ -535,7 +544,7 @@ static void test_search(const char *dir, const char *scratch) {
     /* Pointing at a file searches just that file. */
     snprintf(args, sizeof args, "{\"pattern\":\"needle\",\"path\":\"%s\"}",
              notes);
-    rc = run("search", args, auth_allow, NULL, &out, ask, sizeof ask, err,
+    rc = run("search", args, auth_allow, NULL, &out, &ask, err,
              sizeof err);
     snprintf(want, sizeof want, "%s:3: needle here", notes);
     ok(rc == TOOL_OK && out.p && strstr(out.p, want) != NULL &&
@@ -553,7 +562,7 @@ static void test_search(const char *dir, const char *scratch) {
     put(many, mb.p, mb.len);
     buf_free(&mb);
     snprintf(args, sizeof args, "{\"pattern\":\"hit\",\"path\":\"%s\"}", many);
-    rc = run("search", args, auth_allow, NULL, &out, ask, sizeof ask, err,
+    rc = run("search", args, auth_allow, NULL, &out, &ask, err,
              sizeof err);
     ok(rc == TOOL_OK && out.p && count_of(out.p, ": hit\n") == 200,
        "search caps matches at 200");
@@ -574,37 +583,39 @@ static void test_permissions(const char *dir) {
 
     char args[2048];
     Buf out;
-    char ask[1024];
+    ToolAsk ask;
     char err[512];
     snprintf(args, sizeof args, "{\"path\":\"%s\"}", path);
 
-    int rc = run("read_file", args, auth_deny, NULL, &out, ask, sizeof ask, err,
+    int rc = run("read_file", args, auth_deny, NULL, &out, &ask, err,
                  sizeof err);
     ok(rc == TOOL_ERR && strstr(err, "permission denied") != NULL &&
            strstr(err, path) != NULL,
        "denied read_file returns TOOL_ERR naming the path");
     buf_free(&out);
 
-    rc = run("read_file", args, auth_ask, NULL, &out, ask, sizeof ask, err,
+    rc = run("read_file", args, auth_ask, NULL, &out, &ask, err,
              sizeof err);
     ok(rc == TOOL_NEED_PERM, "asked read_file returns TOOL_NEED_PERM");
-    ok(strcmp(ask, path) == 0, "asked read_file reports the exact path");
+    ok(strcmp(ask.path, path) == 0, "asked read_file reports the exact path");
     ok(out.len == 0, "asked read_file executes nothing");
     buf_free(&out);
 
-    rc = run("list_dir", args, auth_ask, NULL, &out, ask, sizeof ask, err,
+    rc = run("list_dir", args, auth_ask, NULL, &out, &ask, err,
              sizeof err);
-    ok(rc == TOOL_NEED_PERM && strcmp(ask, path) == 0,
+    ok(rc == TOOL_NEED_PERM && strcmp(ask.path, path) == 0,
        "asked list_dir reports the exact path");
     buf_free(&out);
 
     /* The authorize callback must see the path that is about to be opened. */
     Rec rec;
     memset(&rec, 0, sizeof rec);
-    rc = run("read_file", args, auth_rec, &rec, &out, ask, sizeof ask, err,
+    rc = run("read_file", args, auth_rec, &rec, &out, &ask, err,
              sizeof err);
-    ok(rc == TOOL_OK && rec.calls == 1 && strcmp(rec.last, path) == 0,
+    ok(rc == TOOL_OK && rec.calls >= 1 && strcmp(rec.last, path) == 0,
        "authorize receives the opened path");
+    ok(strcmp(rec.tool, "read_file") == 0 && rec.action == TOOL_ACT_READ,
+       "authorize receives the tool name and read class");
     buf_free(&out);
 
     /* A search that needs approval anywhere returns no partial result. */
@@ -615,12 +626,31 @@ static void test_permissions(const char *dir) {
     char dargs[2048];
     snprintf(dargs, sizeof dargs, "{\"pattern\":\"needle\",\"path\":\"%s\"}",
              dir);
-    rc = run("search", dargs, auth_ask_below, (void *)dir, &out, ask,
-             sizeof ask, err, sizeof err);
-    ok(rc == TOOL_NEED_PERM && strcmp(ask, inner) == 0,
+    rc = run("search", dargs, auth_ask_below, (void *)dir, &out, &ask,
+             err, sizeof err);
+    ok(rc == TOOL_NEED_PERM && strcmp(ask.path, inner) == 0,
        "search asks about a file before reading it");
     ok(out.len == 0, "search returns no partial output on TOOL_NEED_PERM");
     buf_free(&out);
+
+    /* The production policy asks on the root the card shows, before walking. */
+    char other[] = "/tmp/meong-tools-out-XXXXXX";
+    if (mkdtemp(other)) {
+        char *of = join(other, "outside.txt");
+        put(of, "needle\n", 7);
+        char oargs[2048];
+        snprintf(oargs, sizeof oargs,
+                 "{\"pattern\":\"needle\",\"path\":\"%s\"}", other);
+        PermPolicy pol = {.cwd = dir};
+        rc = run("search", oargs, auth_policy, &pol, &out, &ask, err,
+                 sizeof err);
+        ok(rc == TOOL_NEED_PERM && strcmp(ask.path, other) == 0,
+           "search asks on its root before walking");
+        ok(out.len == 0, "root ask returns no partial output");
+        buf_free(&out);
+        free(of);
+        rmdir(other);
+    }
 
     free(inner);
     free(nested);
@@ -702,35 +732,35 @@ static void test_bound(const char *dir) {
 
 static void test_dispatch(void) {
     Buf out;
-    char ask[256];
+    ToolAsk ask;
     char err[512];
 
-    int rc = run("nope", "{}", auth_allow, NULL, &out, ask, sizeof ask, err,
+    int rc = run("nope", "{}", auth_allow, NULL, &out, &ask, err,
                  sizeof err);
     ok(rc == TOOL_ERR && strstr(err, "unknown tool") != NULL,
        "unknown tool returns TOOL_ERR");
     buf_free(&out);
 
-    rc = run("read_file", "[]", auth_allow, NULL, &out, ask, sizeof ask, err,
+    rc = run("read_file", "[]", auth_allow, NULL, &out, &ask, err,
              sizeof err);
     ok(rc == TOOL_ERR && strstr(err, "JSON object") != NULL,
        "non-object arguments are rejected");
     buf_free(&out);
 
-    rc = run("read_file", "{oops", auth_allow, NULL, &out, ask, sizeof ask, err,
+    rc = run("read_file", "{oops", auth_allow, NULL, &out, &ask, err,
              sizeof err);
     ok(rc == TOOL_ERR && strstr(err, "not valid JSON") != NULL,
        "malformed arguments are rejected");
     buf_free(&out);
 
-    rc = run("read_file", "{}", auth_allow, NULL, &out, ask, sizeof ask, err,
+    rc = run("read_file", "{}", auth_allow, NULL, &out, &ask, err,
              sizeof err);
     ok(rc == TOOL_ERR && strstr(err, "missing required argument: path") != NULL,
        "missing path is named in the error");
     buf_free(&out);
 
-    rc = run("read_file", "{\"path\":7}", auth_allow, NULL, &out, ask,
-             sizeof ask, err, sizeof err);
+    rc = run("read_file", "{\"path\":7}", auth_allow, NULL, &out, &ask,
+             err, sizeof err);
     ok(rc == TOOL_ERR && strstr(err, "must be a string") != NULL,
        "wrong argument type is named in the error");
     buf_free(&out);

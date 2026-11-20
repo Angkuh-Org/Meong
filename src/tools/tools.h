@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 
+#include "tools/perm.h"
 #include "util/util.h"
 
 #define TOOL_MAX_CALLS 8
@@ -24,22 +25,22 @@ enum {
 };
 
 /*
- * Authorize one filesystem path. 1 allows, 0 denies, -1 asks the user.
- * The caller may invoke the tool again with a callback that answers.
+ * Decide one operation request. The callback fills req->resolved and returns
+ * PERM_ALLOW, PERM_DENY or PERM_ASK. The tool layer copies an ASK into the
+ * caller's ToolAsk; the callback never owns the record.
  */
-typedef int (*ToolAuthorizeFn)(void *ud, const char *path);
+typedef enum PermDecision (*ToolAuthorizeFn)(void *ud, PermReq *req);
 
 /* The static, byte-stable OpenAI tools array. */
 const char *tools_json(void);
 
 /*
- * Execute one tool call. On TOOL_NEED_PERM, ask_path receives the path that
- * needs approval and nothing is executed. On TOOL_ERR, err receives a
- * model-facing message. out is the unbounded result text.
+ * Execute one tool call. The class comes from the registration table, not
+ * from the caller. On TOOL_NEED_PERM, ask receives the operation record and
+ * nothing is executed. On TOOL_ERR, err receives a model-facing message.
  */
 int tool_execute(const char *name, const char *args, size_t args_len,
-                 void *ud, ToolAuthorizeFn authorize,
-                 char *ask_path, size_t ask_cap,
+                 void *ud, ToolAuthorizeFn authorize, ToolAsk *ask,
                  Buf *out, char *err, size_t err_cap);
 
 /*
