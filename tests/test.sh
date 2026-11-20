@@ -2104,11 +2104,24 @@ PY
     pane=$(tmux capture-pane -p -t "$TMUX_SESS")
     printf '%s\n' "$pane" | grep -Fq '○ thinking ▾' \
         || fail "reasoning-only reply folded its only content"
-    printf '%s\n' "$pane" | grep -Fq '╰─ thinking a little' \
-        || fail "reasoning-only reply lost its reasoning text"
-    printf '%s\n' "$pane" | grep -Fq 'with no answer' \
-        || fail "reasoning-only reply lost its second chunk"
-    ok "reasoning-only reply stays unfolded"
+    printf '%s\n' "$pane" | grep -Fq 'First pass:' \
+        || fail "reasoning-only reply lost its first line"
+    printf '%s\n' "$pane" | grep -Fq -- '- alpha beta gamma delta' \
+        || fail "reasoning-only reply lost its list item"
+    printf '%s\n' "$pane" | grep -Fq '╰─ last thought' \
+        || fail "reasoning close did not land on the last line"
+    first_row=$(printf '%s\n' "$pane" | grep -n 'First pass:' |
+        cut -d: -f1 | head -1)
+    bullet_row=$(printf '%s\n' "$pane" |
+        grep -n -- '- alpha beta gamma delta' | cut -d: -f1 | head -1)
+    [ $((bullet_row - first_row)) -eq 2 ] \
+        || fail "reasoning paragraph break collapsed"
+    if printf '%s\n' "$pane" | grep -Fq '## Plan'; then
+        fail "ATX marker leaked into the reasoning view"
+    fi
+    printf '%s\n' "$pane" | grep -Fq 'Plan' \
+        || fail "reasoning heading text disappeared"
+    ok "reasoning-only reply stays unfolded and structured"
     tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
     TMUX_SESS=""
 

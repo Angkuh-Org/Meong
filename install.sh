@@ -15,7 +15,7 @@ case "$version" in
         printf '  %-20s %s\n' "MEONG_REPO" "repository override"
         printf '  %-20s %s\n' "MEONG_DOWNLOAD_BASE" "release URL override"
         printf '\npin a version:\n'
-        printf '  curl -fsSL .../install.sh | sh -s -- v0.16.0\n'
+        printf '  curl -fsSL .../install.sh | sh -s -- v0.17.0\n'
         exit 0
         ;;
 esac

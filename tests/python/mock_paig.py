@@ -381,9 +381,18 @@ class Handler(BaseHTTPRequestHandler):
         elif model == "mock/reasononly":
             frames = [
                 sse_frame(
-                    chunk_obj(model, {"reasoning_content": "thinking a little "})
+                    chunk_obj(
+                        model,
+                        {"reasoning_content": "First pass:\n\n- alpha beta "
+                                              "gamma delta"},
+                    )
                 ),
-                sse_frame(chunk_obj(model, {"reasoning_content": "with no answer"})),
+                sse_frame(
+                    chunk_obj(
+                        model,
+                        {"reasoning_content": "\n\n## Plan\nlast thought"},
+                    )
+                ),
                 sse_frame(usage_obj(model)),
                 b"data: [DONE]\n\n",
             ]
