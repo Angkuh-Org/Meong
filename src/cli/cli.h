@@ -16,6 +16,8 @@ typedef struct {
     int no_mouse;
     int no_color;
     int yolo;
+    int allow_writes;
+    int allow_exec;
     int help;
     int version;
 } Options;

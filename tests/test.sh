@@ -57,6 +57,13 @@ if "$PWD/build/rulecheck" "$TMP/law" >/dev/null 2>&1; then
 fi
 ok "rulebook: loc-per-file law bites"
 
+"$BIN" --help >"$TMP/help" 2>&1 || fail "meong --help failed"
+grep -q -- '--yolo' "$TMP/help" \
+    && grep -q -- '--allow-writes' "$TMP/help" \
+    && grep -q -- '--allow-exec' "$TMP/help" \
+    || fail "permission flags missing from --help"
+ok "cli: permission flags are documented"
+
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/json_skip_test" \
     tests/c/json_skip_test.c src/json/json.c src/util/util.c \
@@ -83,7 +90,7 @@ ok "json: fast delta scanner matches jsmn"
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/msg_release_test" \
     tests/c/msg_release_test.c src/app/app.c src/chat/tool_accum.c \
-    src/ui/md.c src/util/util.c \
+    src/ui/md.c src/tools/perm.c src/util/util.c \
     || fail "msg_release test did not compile"
 "$TMP/msg_release_test" >/dev/null \
     || fail "msg_release left stale state"
@@ -92,7 +99,7 @@ ok "app: msg_release clears the message and is idempotent"
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/state_test" \
     tests/c/state_test.c src/app/state.c src/app/app.c \
-    src/chat/tool_accum.c src/ui/md.c src/util/util.c \
+    src/chat/tool_accum.c src/ui/md.c src/tools/perm.c src/util/util.c \
     || fail "state test did not compile"
 "$TMP/state_test" >/dev/null \
     || fail "state file lost model or effort"
@@ -101,7 +108,7 @@ ok "state: model and effort round-trip without clobbering"
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/markdown_test" \
     tests/c/markdown_test.c src/app/app.c src/chat/tool_accum.c \
-    src/ui/md.c src/util/util.c \
+    src/ui/md.c src/tools/perm.c src/util/util.c \
     || fail "markdown test did not compile"
 "$TMP/markdown_test" >/dev/null \
     || fail "markdown translation diverged"
@@ -118,11 +125,18 @@ ok "tools: accumulator handles whole and fragmented calls"
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/tools_test" \
     tests/c/tools_test.c src/tools/tools.c src/tools/exec.c \
-    src/json/json.c src/util/util.c \
+    src/tools/perm.c src/json/json.c src/util/util.c \
     || fail "tools test did not compile"
 "$TMP/tools_test" >/dev/null \
     || fail "tool handlers failed"
 ok "tools: read_file, search, list_dir and result bounding"
+
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
+    -o "$TMP/perm_test" tests/c/perm_test.c src/tools/perm.c \
+    || fail "permission policy test did not compile"
+"$TMP/perm_test" >/dev/null \
+    || fail "permission policy matrix failed"
+ok "tools: action-class policy and ask record"
 
 LAYOUT_SRCS=$(find src -name '*.c' ! -path 'src/rules/*' \
     ! -path 'src/main.c' ! -path 'src/ui/view.c' | sort)

@@ -27,21 +27,38 @@ Details:
 
 ## Permission model
 
-- A path inside runs immediately.
-- A path outside it turns the call row into `? name  args` (no inline prompt)
-  and replaces the composer with a permission card. The card repeats the
-  pending call with the model's raw JSON arguments and offers `[ Allow ]`,
-  `[ Reject ]` and `[ Always allow this session ]`. `←→`/`tab` move the
-  highlight, `enter`/`space` activate it, `y`/`n`/`a` are shortcuts, and a
-  click on a button activates it.
-- Allow and Reject apply to that call only. Always lets every outside-cwd path
-  through for the rest of the process (it survives `/clear`) and carries the
-  same credential risk as `--yolo`: later reads can include `~/.ssh/*` and
-  `~/.paig/config.json`.
-- `--yolo` or `MEONG_YOLO=1` disables the prompt and allows every path.
-  **This includes credential files** such as `~/.ssh/*` and `~/.paig/config.json`;
-  only use it when you accept that a prompt-injected tool result could read
-  them and send their contents upstream through PAIG.
+Every tool is registered with one action class — `read`, `mutate`, or `exec`.
+The class is bound in the dispatch table, not chosen by a handler or by the
+model's tool-name string.
+
+- **`read`** (the three tools above): a path inside the working directory runs
+  immediately; a path outside turns the call row into `? name  args` and
+  replaces the composer with a permission card. `search` asks on its root
+  argument — the path the card shows — and one approval covers that call.
+- **`mutate`** (a future `edit`/`write`): always asks, even inside the cwd.
+  `--allow-writes` is the explicit opt-out.
+- **`exec`** (a future allowlisted `run`): always asks, even inside the cwd.
+  `--allow-exec` is the explicit opt-out; it only covers allowlisted commands,
+  never a free shell.
+- `--yolo` or `MEONG_YOLO=1` allows **reads outside the cwd only**. It does
+  not unlock mutate or exec. `MEONG_YOLO=0`/`false` means off.
+
+The card repeats the pending call with the model's raw JSON arguments (or the
+command/preview for a future non-read class) and offers `[ Allow ]`,
+`[ Reject ]` and, for reads only, `[ Always allow this session ]`. It opens
+with **Reject** focused, so `enter` rejects. `←→`/`tab` move the highlight,
+`enter`/`space` activate it, `y`/`n`/`a` are shortcuts, and a click on a
+button activates it. Allow and Reject apply to that call only. Always grants
+outside-cwd **reads** for the rest of the process and is cleared by `/clear`;
+it does not unlock writes or exec.
+
+The card is a confirmation, not a sandbox. `--yolo`, `--allow-writes`, and
+`--allow-exec` are standing opt-outs: they carry the same credential risk as
+running the action yourself. `--allow-writes` can write anywhere your user
+account can (including `~/.ssh/*` and shell rc files); `--yolo` can read
+`~/.ssh/*` and `~/.paig/config.json`. Only use them when you accept that a
+prompt-injected tool result could exercise that access and send the contents
+upstream through PAIG.
 
 ## Display
 

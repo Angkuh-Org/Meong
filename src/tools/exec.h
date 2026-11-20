@@ -7,15 +7,15 @@
 #include "tools/tools.h"
 
 int tool_run_read_file(const JDoc *d, int args, void *ud,
-                       ToolAuthorizeFn authorize, char *ask_path,
-                       size_t ask_cap, Buf *out, char *err, size_t err_cap);
+                       ToolAuthorizeFn authorize, ToolAsk *ask, Buf *out,
+                       char *err, size_t err_cap);
 
 int tool_run_search(const JDoc *d, int args, void *ud,
-                    ToolAuthorizeFn authorize, char *ask_path, size_t ask_cap,
-                    Buf *out, char *err, size_t err_cap);
+                    ToolAuthorizeFn authorize, ToolAsk *ask, Buf *out,
+                    char *err, size_t err_cap);
 
 int tool_run_list_dir(const JDoc *d, int args, void *ud,
-                      ToolAuthorizeFn authorize, char *ask_path,
-                      size_t ask_cap, Buf *out, char *err, size_t err_cap);
+                      ToolAuthorizeFn authorize, ToolAsk *ask, Buf *out,
+                      char *err, size_t err_cap);
 
 #endif

@@ -122,7 +122,7 @@ int retry_last(App *a) {
     a->nmsg = i + 1;
     a->tool_round = 0;
     a->tool_pending = 0;
-    a->tool_allow_all = 0;
+    a->tool_call_approved = 0;
     a->tool_call_pos = 0;
     a->tool_msg_idx = -1;
     a->follow = 1;

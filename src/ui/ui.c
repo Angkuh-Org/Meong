@@ -567,8 +567,8 @@ static const ToolCall *perm_pending_call(const App *a) {
 
 static size_t perm_args_text(const App *a, const ToolCall *call, char *out,
                              size_t cap) {
-    const char *s = call && call->args ? call->args : a->perm_path;
-    size_t n = call && call->args ? call->args_len : strlen(a->perm_path);
+    const char *s = call && call->args ? call->args : a->perm_ask.path;
+    size_t n = call && call->args ? call->args_len : strlen(a->perm_ask.path);
     size_t o = 0;
     size_t i = 0;
     for (; i < n && o + 4 < cap; i++) {
@@ -624,10 +624,15 @@ static __attribute__((noinline, cold)) void perm_draw(App *a, int rows,
         py = 1;
     }
     const ToolCall *call = perm_pending_call(a);
-    const char *name = call && call->name && *call->name ? call->name
-                                                        : "tool";
+    const char *name = call && call->name && *call->name
+                           ? call->name
+                           : (a->perm_ask.tool[0] ? a->perm_ask.tool
+                                                  : "tool");
     /* 512 covers every realistic width; the frame is cold, so shrinking it
-     * was measured and rejected. */
+     * was measured and rejected. The 2026-11-20 audit measured 370 -> 468
+     * insn and 720 -> 848 B for the three-class label/hint, with x19-x28
+     * already full: no register headroom, so this is a rejection, not a
+     * TODO queue item. */
     char args[512];
 
     panel_frame(a, px, py, w, card_h, NULL, 0);
@@ -643,8 +648,15 @@ static __attribute__((noinline, cold)) void perm_draw(App *a, int rows,
     mvaddstr(py, tx, label);
     tx += (int)strlen(label) - 1;
 
-    static const char where[] = " outside cwd ";
-    int where_w = (int)sizeof where - 1;
+    const char *wlabel = "outside cwd";
+    if (a->perm_ask.action == TOOL_ACT_MUTATE) {
+        wlabel = "write";
+    } else if (a->perm_ask.action == TOOL_ACT_EXEC) {
+        wlabel = "exec";
+    }
+    char where[24];
+    snprintf(where, sizeof where, " %s ", wlabel);
+    int where_w = (int)strlen(where);
     int where_x = px + w - 3 - where_w;
     if (where_x >= tx + 2) {
         wattrset(stdscr, a->color ? pair_attr(a, P_PANEL_WARN)
@@ -664,11 +676,27 @@ static __attribute__((noinline, cold)) void perm_draw(App *a, int rows,
     if (args_cap > (size_t)textw + 4) {
         args_cap = (size_t)textw + 4;
     }
-    int args_len = (int)perm_args_text(a, call, args, args_cap);
+    int args_len;
+    if (a->perm_ask.kind != TOOL_ASK_PATH && a->perm_ask.text[0]) {
+        size_t n = a->perm_ask.text_len;
+        if (n >= args_cap) {
+            n = args_cap - 1;
+        }
+        memcpy(args, a->perm_ask.text, n);
+        args[n] = '\0';
+        if (a->perm_ask.text_truncated && n + 3 < args_cap) {
+            memcpy(args + n, "...", 4);
+            n += 3;
+        }
+        args_len = (int)n;
+    } else {
+        args_len = (int)perm_args_text(a, call, args, args_cap);
+    }
     draw_slice(a, y + 1, x0 + 2, args, 0, args_len, maxx,
                pair_attr(a, P_PANEL_DIM), 0, 0, 0, NULL);
 
     int avail = maxx - x0 + 1;
+    int nbtn = a->perm_ask.action == TOOL_ACT_READ ? 3 : 2;
     const char *labels[3] = {"Allow", "Reject", "Always"};
     int gap = 1;
     if (avail >= 52) {
@@ -678,16 +706,26 @@ static __attribute__((noinline, cold)) void perm_draw(App *a, int rows,
     int by = cy + 4;
     int bx = x0;
     a->perm_btn_y = by;
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < nbtn; i++) {
         int bw = (int)strlen(labels[i]) + 4;
         a->perm_btn_x0[i] = bx;
         a->perm_btn_x1[i] = bx + bw - 1;
         perm_button(a, by, bx, bw, labels[i], a->perm_sel == i);
         bx += bw + gap;
     }
+    for (int i = nbtn; i < 3; i++) {
+        a->perm_btn_x0[i] = -1;
+        a->perm_btn_x1[i] = -1;
+    }
 
     const char *hint;
-    if (a->unicode) {
+    char hintbuf[80];
+    if (nbtn != 3) {
+        snprintf(hintbuf, sizeof hintbuf, "%s%s", wlabel,
+                 a->unicode ? " · arrows choose · enter"
+                            : " | arrows choose | enter");
+        hint = hintbuf;
+    } else if (a->unicode) {
         if (avail >= 59) {
             hint = "outside cwd · arrows choose · enter · always = this session";
         } else if (avail >= 43) {

@@ -61,7 +61,7 @@ Requires `cc` and `ncursesw` headers.
 - [Install](docs/install.md) — installer options and PATH.
 - [Usage](docs/usage.md) — keys, commands, configuration, behavior.
 - [Models](docs/models.md) — selection, state, cache, capability card.
-- [Tools](docs/tools.md) — read-only tools, permission prompt, output bounds.
+- [Tools](docs/tools.md) — tool classes, permission prompt, output bounds.
 - [Performance method](docs/perf.md) — benchmark method and raw numbers.
 - [Layout](docs/layout.md) — module map.
 - [Release](docs/release.md) — assets and runtime requirements.

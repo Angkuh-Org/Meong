@@ -175,15 +175,15 @@ typedef struct {
     int tool_msg_idx;
     int tool_call_pos;
     int tool_pending;
-    int tool_allow_all;
+    int tool_call_approved;
     int perm_sel;
-    int perm_allow_session;
     int perm_btn_y;
     int perm_btn_x0[3];
     int perm_btn_x1[3];
-    char perm_path[1024];
+    ToolAsk perm_ask;
+    unsigned base_perms;
+    unsigned session_perms;
     int tools_enabled;
-    int yolo;
     char stream_err[1024];
     int stream_failed;
 

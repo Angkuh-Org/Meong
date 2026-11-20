@@ -58,6 +58,15 @@ int main(void) {
               m.rcap == 0 && m.lay_valid == 0,
           "second release dirtied the counters");
 
+    App a;
+    memset(&a, 0, sizeof a);
+    a.session_perms = PERM_SESSION_READ | PERM_SESSION_MUTATE;
+    a.tool_call_approved = 1;
+    msgs_clear(&a);
+    check(a.session_perms == 0, "msgs_clear drops the session grants");
+    check(a.tool_call_approved == 0,
+          "msgs_clear drops the one-call approval");
+
     printf(fails ? "FAILED: %d msg_release check(s)\n" : "MSG_RELEASE OK\n",
            fails);
     return fails != 0;
