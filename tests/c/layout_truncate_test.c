@@ -320,6 +320,79 @@ int main(void) {
           "stale gap survived the tool-round rebuild");
     app_free(&g);
 
+    /* Reasoning keeps its own line structure: paragraphs breathe, a bullet
+     * hangs its continuation, and an ATX marker is not shown. */
+    App rs;
+    memset(&rs, 0, sizeof rs);
+    rs.layout_width = 20;
+    msg_add(&rs, ROLE_USER, "q");
+    int rsa = msg_add(&rs, ROLE_ASSISTANT, "");
+    rs.msgs[rsa].reason = xstrdup(
+        "first thought\n\n\n- alpha beta gamma delta\n\n## Step 1\nbody\n\n");
+    rs.msgs[rsa].rlen = strlen(rs.msgs[rsa].reason);
+    layout_build(&rs);
+    int rrows = 0;
+    int rblank = 0;
+    int rhang = 0;
+    int rclose = -1;
+    int rlast = -1;
+    int rhead = -1;
+    for (int i = 0; i < rs.nlines; i++) {
+        RLine *l = &rs.lines[i];
+        if (l->msg != rsa || l->type != RL_REASON) {
+            continue;
+        }
+        int rlen = (int)rs.msgs[rsa].rlen;
+        check(l->off >= 0 && l->off + l->len <= rlen,
+              "reasoning row points past the reasoning text");
+        rrows++;
+        rlast = i;
+        if (l->len == 0) {
+            rblank++;
+        }
+        if (l->hang > 0) {
+            rhang = l->hang;
+        }
+        if (l->close) {
+            rclose = i;
+        }
+        if (l->len == 6 &&
+            memcmp(rs.msgs[rsa].reason + l->off, "Step 1", 6) == 0) {
+            rhead = i;
+            check(l->style == MD_BOLD, "heading row lost its bold style");
+        }
+    }
+    check(rrows == 7, "reasoning lost or joined its source lines");
+    check(rblank == 2, "reasoning collapsed or kept every blank line");
+    check(rhang == 2, "bullet continuation is not hanging indented");
+    check(rhead >= 0, "ATX marker was not stripped from a reasoning row");
+    check(rlast >= 0 && rclose == rlast,
+          "reasoning close corner is not on the last row");
+    app_free(&rs);
+
+    /* A nested quote hangs its continuation under both markers. */
+    App rq;
+    memset(&rq, 0, sizeof rq);
+    rq.layout_width = 16;
+    msg_add(&rq, ROLE_USER, "q");
+    int rqa = msg_add(&rq, ROLE_ASSISTANT, "");
+    rq.msgs[rqa].reason = xstrdup("> > alpha beta gamma delta");
+    rq.msgs[rqa].rlen = strlen(rq.msgs[rqa].reason);
+    layout_build(&rq);
+    int qrows = 0;
+    int qhang = 0;
+    for (int i = 0; i < rq.nlines; i++) {
+        if (rq.lines[i].msg == rqa && rq.lines[i].type == RL_REASON) {
+            qrows++;
+            if (rq.lines[i].hang > 0) {
+                qhang = rq.lines[i].hang;
+            }
+        }
+    }
+    check(qrows == 2 && qhang == 4,
+          "nested quote did not hang under both markers");
+    app_free(&rq);
+
     printf(fails ? "FAILED: %d layout check(s)\n" : "LAYOUT CHECKS OK\n",
            fails);
     return fails != 0;

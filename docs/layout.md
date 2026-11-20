@@ -158,7 +158,9 @@ paragraph wrapping, code boxes, reasoning lines, notes, tool tree rows, the
 expanded-output box, `draw_slice()` for UTF-8, wide cells and markdown style
 runs, the click hit-test that expands or folds a reasoning block or tool
 result, and a per-message tail cursor so streaming re-wraps only the last row
-plus the new bytes. A tool row's rail state comes from `(tool_parent,
+plus the new bytes. `layout_reason()` owns the reasoning rail: source line
+breaks, one-row paragraph gaps, list and quote hanging indents, and ATX marker
+stripping. A tool row's rail state comes from `(tool_parent,
 tool_pos)`, so an incremental layout never leaves a stale `╰─` on the first of
 two calls.
 `pet.c` owns the pet card: the ASCII cat, reaction pools, mood and stats

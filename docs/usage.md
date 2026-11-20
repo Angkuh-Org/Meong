@@ -112,7 +112,10 @@ Model state and cache paths: [`models.md`](models.md).
   generated once per chat from the first prompt by one extra request to the
   current model; before it arrives the slot reads `new chat`.
 - Input supports UTF-8 and wide characters.
-- Reasoning rows use the `│` rail; the last row closes with `╰─`.
+- Reasoning keeps its source line shape: a blank line separates paragraphs,
+  bullet and ordered items hang their wrapped text under the marker, and ATX
+  `#` markers are stripped before drawing.  Rows use the `│` rail; the last
+  row closes with `╰─`.
 
 ## Context and footer
 

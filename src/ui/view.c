@@ -232,6 +232,114 @@ static void layout_block(App *a, int mi, const char *text, size_t len,
     }
 }
 
+/*
+ * Reasoning arrives as prose, not as one paragraph.  wrap_run() has no
+ * newline break, so the old single call joined every thought into one run.
+ * Lay it out line by line: keep paragraph breaks (collapsed to one row),
+ * hang list continuations under their marker, and drop ATX markers.  The
+ * drawn bytes always come from m->reason, so off/len stay source offsets.
+ */
+static void layout_reason(App *a, int mi) {
+    Msg *m = &a->msgs[mi];
+    size_t len = m->rlen;
+    size_t pos = 0;
+    int pending_blank = 0;
+    size_t blank_pos = 0;
+    int any = 0;
+    while (pos < len) {
+        size_t nl = pos;
+        while (nl < len && m->reason[nl] != '\n') {
+            nl++;
+        }
+        size_t llen = nl - pos;
+        if (llen > 0 && m->reason[pos + llen - 1] == '\r') {
+            llen--;
+        }
+        size_t lead = 0;
+        while (lead < llen && lead < 16 && m->reason[pos + lead] == ' ') {
+            lead++;
+        }
+        int blank = 1;
+        for (size_t i = lead; i < llen; i++) {
+            char ch = m->reason[pos + i];
+            if (ch != ' ' && ch != '\t') {
+                blank = 0;
+                break;
+            }
+        }
+        if (blank) {
+            if (any) {
+                pending_blank = 1;
+                blank_pos = pos;
+            }
+        } else {
+            if (pending_blank) {
+                line_push(a, RL_REASON, mi, (int)blank_pos, 0, 0);
+                pending_blank = 0;
+            }
+            size_t off = pos;
+            size_t vlen = llen;
+            int hang = 0;
+            unsigned style = 0;
+            unsigned char c = (unsigned char)m->reason[pos + lead];
+            if (c == '#' && lead <= 3) {
+                size_t run = 0;
+                while (lead + run < llen && run < 6 &&
+                       m->reason[pos + lead + run] == '#') {
+                    run++;
+                }
+                size_t k = lead + run;
+                if (run > 0 &&
+                    (k == llen || m->reason[pos + k] == ' ')) {
+                    if (k < llen) {
+                        k++;
+                    }
+                    off = pos + k;
+                    vlen = llen - k;
+                    style = MD_BOLD;
+                }
+            }
+            if (style == 0 && (c == '-' || c == '*' || c == '+') &&
+                lead + 1 < llen && m->reason[pos + lead + 1] == ' ') {
+                hang = (int)lead + 2;
+            } else if (style == 0 && c == '>') {
+                size_t k = lead;
+                while (k < llen && m->reason[pos + k] == '>') {
+                    k++;
+                    if (k < llen && m->reason[pos + k] == ' ') {
+                        k++;
+                    }
+                }
+                hang = (int)(k - lead);
+            } else if (style == 0 && c >= '0' && c <= '9') {
+                size_t k = lead;
+                while (k < llen && k - lead < 9 &&
+                       m->reason[pos + k] >= '0' &&
+                       m->reason[pos + k] <= '9') {
+                    k++;
+                }
+                if (k < llen && (m->reason[pos + k] == '.' ||
+                                 m->reason[pos + k] == ')') &&
+                    k + 1 < llen && m->reason[pos + k + 1] == ' ') {
+                    hang = (int)(k - lead) + 2;
+                }
+            }
+            wrap_run(a, mi, m->reason + off, vlen, off, RL_REASON,
+                     a->layout_width, 0, 0, 0, 0, hang, style);
+            any = 1;
+        }
+        if (nl == len) {
+            break;
+        }
+        pos = nl + 1;
+    }
+    /* A whitespace-only reasoning stream used to keep one rail row; do not
+     * let the blank suppression erase the block entirely. */
+    if (!any && len > 0) {
+        line_push(a, RL_REASON, mi, 0, 0, 0);
+    }
+}
+
 static void layout_tool(App *a, int mi) {
     Msg *m = &a->msgs[mi];
     line_push(a, RL_TOOL_HEAD, mi, 0, 0, 0);
@@ -304,8 +412,7 @@ static void layout_message(App *a, int mi, int incremental) {
             line_push(a, RL_REASON_HEAD, mi, 0, 0, 0);
             first = a->nlines - 1;
             if (!m->reason_collapsed) {
-                wrap_run(a, mi, m->reason, m->rlen, 0, RL_REASON,
-                         a->layout_width, 0, 0, 0, 0, 0, 0);
+                layout_reason(a, mi);
                 for (int i = a->nlines - 1; i >= 0 && a->lines[i].msg == mi;
                      i--) {
                     if (a->lines[i].type == RL_REASON) {
