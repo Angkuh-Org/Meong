@@ -144,6 +144,10 @@ static void test_call_and_missing(const char *cwd, const char *outside) {
     ok(perm_decide(&p, &r) == PERM_STALE,
        "a different inode is stale, not an allow");
     got = want;
+    got.kind = TOOL_IDENT_CREATE;
+    ok(perm_decide(&p, &r) == PERM_STALE,
+       "a different identity kind is stale, not an allow");
+    got = want;
     p.approved = NULL;
     ok(perm_decide(&p, &r) == PERM_DENY,
        "a mutation approval without a recorded identity denies");

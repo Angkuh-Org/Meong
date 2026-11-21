@@ -75,17 +75,24 @@ Read-only tools render as a tree under the assistant; rows show status,
 shortened arguments, and duration/size, and open into a box. An outside-cwd
 read replaces the composer with a permission card that opens on Reject.
 
-`edit` is the one mutating tool. It requires an exact, unique `old_string`
-(unless `replace_all` is set), preserves bytes, line endings, and mode, and
-writes atomically. Its card shows the path, line, and the changed old/new
-block (up to 3+3 lines, `...` when longer), opens on Reject, and has only
-Allow/Reject. `--allow-writes` is the standing
-opt-out; it skips the card but still refuses protected paths, links, a
-foreign-owned target, and a file that changed after the ask. `--yolo` covers
-outside-cwd reads only and no longer reads a protected path (`.ssh`, `.git`,
-`.env`, `.paig`, …). `--allow-exec` is the separate opt-out for the future exec
-class. Permission, protected paths, display details, and output bounds:
-[`tools.md`](tools.md).
+`edit` requires an exact, unique `old_string` (unless `replace_all` is set),
+preserves bytes, line endings, and mode, and writes atomically. Its card shows
+the path, line, and the changed old/new block (up to 3+3 lines, `...` when
+longer), opens on Reject, and has only Allow/Reject.
+
+`write` creates a new file by default; an existing file is refused until
+`overwrite:true` is passed, so a wrong path cannot silently clobber. The
+parent directory must exist, content is limited to 24 KiB, and the card shows
+the resolved path, the create/overwrite verb, byte/line counts, and a
+sanitized sample. A create publishes with `RENAME_NOREPLACE`; an overwrite
+preserves the mode and re-checks the file identity. `--allow-writes` is the
+standing opt-out for both mutating tools; it skips the card but still refuses
+protected paths, links, a foreign-owned or setuid/setgid target, a file that
+changed after the ask, and a create that would replace an existing file.
+`--yolo` covers outside-cwd reads only and no longer reads a protected path
+(`.ssh`, `.git`, `.env`, `.paig`, …). `--allow-exec` is the separate opt-out
+for the future exec class. Permission, protected paths, display details, and
+output bounds: [`tools.md`](tools.md).
 
 ## Configuration
 

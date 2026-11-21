@@ -66,22 +66,29 @@ ok "cli: permission flags are documented"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/json_skip_test" \
-    tests/c/json_skip_test.c src/json/json.c src/util/util.c \
+    tests/c/json_skip_test.c src/json/json.c src/util/util.c src/util/renameat2.c \
     || fail "json skip test did not compile"
 "$TMP/json_skip_test" >/dev/null \
     || fail "json skip table diverged from the recursive walk"
 ok "json: cached skip matches the recursive walk"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
-    -o "$TMP/utf8_cols_test" tests/c/utf8_cols_test.c src/util/util.c \
+    -o "$TMP/utf8_cols_test" tests/c/utf8_cols_test.c src/util/util.c src/util/renameat2.c \
     || fail "utf8 cols test did not compile"
 "$TMP/utf8_cols_test" >/dev/null \
     || fail "utf8 column helpers disagree with wcwidth"
 ok "util: utf8 columns and tail stay on codepoint boundaries"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
+    -o "$TMP/preview_test" tests/c/preview_test.c src/util/util.c src/util/renameat2.c \
+    || fail "preview test did not compile"
+"$TMP/preview_test" >/dev/null \
+    || fail "preview scanner diverged from the scalar reference"
+ok "util: preview scanner keeps bytes and control counts"
+
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/jdelta_test" tests/c/jdelta_test.c src/json/json.c \
-    src/chat/tool_accum.c src/util/util.c \
+    src/chat/tool_accum.c src/util/util.c src/util/renameat2.c \
     || fail "jdelta test did not compile"
 "$TMP/jdelta_test" >/dev/null \
     || fail "fast delta scanner diverged from jsmn"
@@ -90,7 +97,7 @@ ok "json: fast delta scanner matches jsmn"
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/msg_release_test" \
     tests/c/msg_release_test.c src/app/app.c src/chat/tool_accum.c \
-    src/ui/md.c src/tools/perm.c src/util/util.c \
+    src/ui/md.c src/tools/perm.c src/util/util.c src/util/renameat2.c \
     || fail "msg_release test did not compile"
 "$TMP/msg_release_test" >/dev/null \
     || fail "msg_release left stale state"
@@ -99,7 +106,7 @@ ok "app: msg_release clears the message and is idempotent"
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/state_test" \
     tests/c/state_test.c src/app/state.c src/app/app.c \
-    src/chat/tool_accum.c src/ui/md.c src/tools/perm.c src/util/util.c \
+    src/chat/tool_accum.c src/ui/md.c src/tools/perm.c src/util/util.c src/util/renameat2.c \
     || fail "state test did not compile"
 "$TMP/state_test" >/dev/null \
     || fail "state file lost model or effort"
@@ -108,7 +115,7 @@ ok "state: model and effort round-trip without clobbering"
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/markdown_test" \
     tests/c/markdown_test.c src/app/app.c src/chat/tool_accum.c \
-    src/ui/md.c src/tools/perm.c src/util/util.c \
+    src/ui/md.c src/tools/perm.c src/util/util.c src/util/renameat2.c \
     || fail "markdown test did not compile"
 "$TMP/markdown_test" >/dev/null \
     || fail "markdown translation diverged"
@@ -116,7 +123,7 @@ ok "markdown: streaming syntax becomes styled display text"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/tool_accum_test" \
-    tests/c/tool_accum_test.c src/chat/tool_accum.c src/util/util.c \
+    tests/c/tool_accum_test.c src/chat/tool_accum.c src/util/util.c src/util/renameat2.c \
     || fail "tool accumulator test did not compile"
 "$TMP/tool_accum_test" >/dev/null \
     || fail "tool accumulator merged or lost calls"
@@ -125,7 +132,8 @@ ok "tools: accumulator handles whole and fragmented calls"
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/tools_test" \
     tests/c/tools_test.c src/tools/tools.c src/tools/exec.c \
-    src/tools/edit.c src/tools/perm.c src/json/json.c src/util/util.c \
+    src/tools/edit.c src/tools/write.c src/tools/perm.c src/json/json.c \
+    src/util/util.c src/util/renameat2.c \
     || fail "tools test did not compile"
 "$TMP/tools_test" >/dev/null \
     || fail "tool handlers failed"
@@ -133,7 +141,7 @@ ok "tools: read_file, search, list_dir and result bounding"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/write_replace_test" \
-    tests/c/write_replace_test.c src/util/util.c \
+    tests/c/write_replace_test.c src/util/util.c src/util/renameat2.c \
     || fail "write replace test did not compile"
 "$TMP/write_replace_test" >/dev/null \
     || fail "atomic replace failed"
@@ -142,11 +150,33 @@ ok "tools: atomic replace preserves mode and refuses links"
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/edit_test" \
     tests/c/edit_test.c src/tools/tools.c src/tools/exec.c \
-    src/tools/edit.c src/tools/perm.c src/json/json.c src/util/util.c \
+    src/tools/edit.c src/tools/write.c src/tools/perm.c src/json/json.c \
+    src/util/util.c src/util/renameat2.c \
     || fail "edit test did not compile"
 "$TMP/edit_test" >/dev/null \
     || fail "edit handler failed"
 ok "tools: edit exact-unique, CRLF, stale and protected"
+
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
+    -o "$TMP/write_test" \
+    tests/c/write_test.c src/tools/tools.c src/tools/exec.c \
+    src/tools/edit.c src/tools/write.c src/tools/perm.c src/json/json.c \
+    src/util/util.c src/util/renameat2.c \
+    || fail "write test did not compile"
+"$TMP/write_test" >/dev/null \
+    || fail "write handler failed"
+ok "tools: write create-only, overwrite, identity and caps"
+
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
+    -o "$TMP/write_fault_test" \
+    tests/c/write_fault_test.c src/util/util.c src/util/renameat2.c \
+    -Wl,--wrap=openat,--wrap=close,--wrap=write,--wrap=fsync,--wrap=fchmod \
+    -Wl,--wrap=unlinkat,--wrap=renameat,--wrap=linkat \
+    -Wl,--wrap=meong_renameat2_noreplace \
+    || fail "write fault test did not compile"
+"$TMP/write_fault_test" >/dev/null \
+    || fail "write fault injection failed"
+ok "tools: write create/overwrite fault injection"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/perm_test" tests/c/perm_test.c src/tools/perm.c \
@@ -204,6 +234,14 @@ PY
 mkdir -p "$TMP/edit"
 printf 'alpha\nbeta\ngamma\n' >"$TMP/edit/notes.txt"
 export MOCK_EDIT_ARGS="{\"path\":\"$TMP/edit/notes.txt\",\"old_string\":\"beta\\ngamma\",\"new_string\":\"BETA\\nGAMMA\"}"
+
+mkdir -p "$TMP/write"
+printf 'old\n' >"$TMP/write/exists.txt"
+chmod 0640 "$TMP/write/exists.txt"
+export MOCK_WRITE_CREATE_ARGS="{\"path\":\"$TMP/write/new.txt\",\"content\":\"created\\n\"}"
+export MOCK_WRITE_OVERWRITE_ARGS="{\"path\":\"$TMP/write/exists.txt\",\"content\":\"new\\n\",\"overwrite\":true}"
+export MOCK_WRITE_EXISTING_ARGS="{\"path\":\"$TMP/write/exists.txt\",\"content\":\"clobber\\n\"}"
+export MOCK_WRITE_LONG_ARGS="{\"path\":\"$TMP/write/long.txt\",\"content\":\"one\\ntwo\\nthree\\nfour\\nfive\\nsix\\nseven\\n\"}"
 
 python3 tests/python/mock_paig.py --port "$PORT" --port-file "$TMP/port" \
     >"$TMP/mock.log" 2>&1 &
@@ -2186,6 +2224,251 @@ PY
         fail "narrow edit card showed a partial diff without a marker"
     fi
     ok "edit card falls back to an honest marker at 40x12"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    rm -f "$TMP/write/new.txt"
+    TMUX_SESS="Meong-write-create-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 90 -y 26 -c "$PWD" \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/write-create --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'go'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '[ Reject ]'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq '? write' \
+        || fail "write create card lost its tool row"
+    printf '%s\n' "$pane" | grep -Fq 'create ' \
+        || fail "write create card lost the create verb"
+    printf '%s\n' "$pane" | grep -Fq 'new.txt' \
+        || fail "write create card lost the path"
+    printf '%s\n' "$pane" | grep -Fq '8 B, 1 line' \
+        || fail "write create card lost the byte/line count"
+    printf '%s\n' "$pane" | grep -Fq '| created' \
+        || fail "write create card lost the content sample"
+    if printf '%s\n' "$pane" | grep -Fq '[ Always'; then
+        fail "write card offered a session mutate grant"
+    fi
+    tmux send-keys -t "$TMUX_SESS" y
+    i=0
+    while [ "$i" -lt 200 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'tool said: OK: created'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq 'tool said: OK: created' \
+        || fail "write create y did not finish the tool round"
+    printf 'created\n' >"$TMP/write/expected"
+    cmp -s "$TMP/write/new.txt" "$TMP/write/expected" \
+        || fail "write create y did not write the expected bytes"
+    ok "write create card allows and writes the expected bytes"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    printf 'old\n' >"$TMP/write/exists.txt"
+    chmod 0640 "$TMP/write/exists.txt"
+    TMUX_SESS="Meong-write-overwrite-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 90 -y 26 -c "$PWD" \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/write-overwrite --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'go'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '[ Reject ]'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq '? write' \
+        || fail "write overwrite card lost its tool row"
+    printf '%s\n' "$pane" | grep -Fq 'overwrite ' \
+        || fail "write overwrite card lost the overwrite verb"
+    printf '%s\n' "$pane" | grep -Fq '4 B -> 4 B' \
+        || fail "write overwrite card lost old -> new bytes"
+    printf '%s\n' "$pane" | grep -Fq '| new' \
+        || fail "write overwrite card lost the content sample"
+    tmux send-keys -t "$TMUX_SESS" n
+    i=0
+    while [ "$i" -lt 200 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'permission denied'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq 'permission denied' \
+        || fail "write overwrite n did not deny the call"
+    printf 'old\n' >"$TMP/write/expected"
+    cmp -s "$TMP/write/exists.txt" "$TMP/write/expected" \
+        || fail "write overwrite n changed the file"
+    [ "$(stat -c %a "$TMP/write/exists.txt")" = "640" ] \
+        || fail "write overwrite n changed the mode"
+    ok "write overwrite card denies without changing bytes or mode"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    printf 'old\n' >"$TMP/write/exists.txt"
+    chmod 0640 "$TMP/write/exists.txt"
+    TMUX_SESS="Meong-write-esc-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 90 -y 26 -c "$PWD" \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/write-overwrite --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'go'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '[ Reject ]'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -t "$TMUX_SESS" Escape
+    i=0
+    while [ "$i" -lt 200 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'permission denied'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq 'permission denied' \
+        || fail "write overwrite Escape did not deny the call"
+    printf 'old\n' >"$TMP/write/expected"
+    cmp -s "$TMP/write/exists.txt" "$TMP/write/expected" \
+        || fail "write overwrite Escape changed the file"
+    [ "$(stat -c %a "$TMP/write/exists.txt")" = "640" ] \
+        || fail "write overwrite Escape changed the mode"
+    ok "write overwrite card rejects on Escape"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    printf 'old\n' >"$TMP/write/exists.txt"
+    TMUX_SESS="Meong-write-existing-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 90 -y 26 -c "$PWD" \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/write-existing --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'go'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 200 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'already exists'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq 'already exists' \
+        || fail "write without overwrite did not refuse"
+    if printf '%s\n' "$pane" | grep -Fq '[ Reject ]'; then
+        fail "write without overwrite opened a card"
+    fi
+    printf 'old\n' >"$TMP/write/expected"
+    cmp -s "$TMP/write/exists.txt" "$TMP/write/expected" \
+        || fail "write without overwrite changed the file"
+    ok "write without overwrite refuses with no card"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    TMUX_SESS="Meong-write-narrow-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 40 -y 12 -c "$PWD" \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/write-long --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'go'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '[ Reject ]'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq 'create ' \
+        || fail "narrow write card lost the create verb"
+    printf '%s\n' "$pane" | grep -Fq 'more lines' \
+        || fail "narrow write card hid content without a marker"
+    ok "write card falls back to an honest marker at 40x12"
     tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
     TMUX_SESS=""
 

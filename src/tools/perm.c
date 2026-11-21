@@ -398,7 +398,8 @@ enum PermDecision perm_decide(const PermPolicy *p, PermReq *r) {
                 !r->ident->valid) {
                 return PERM_DENY;
             }
-            if (p->approved->dev != r->ident->dev ||
+            if (p->approved->kind != r->ident->kind ||
+                p->approved->dev != r->ident->dev ||
                 p->approved->ino != r->ident->ino ||
                 p->approved->size != r->ident->size ||
                 p->approved->mtime_s != r->ident->mtime_s ||
@@ -406,7 +407,8 @@ enum PermDecision perm_decide(const PermPolicy *p, PermReq *r) {
                 p->approved->mode != r->ident->mode ||
                 p->approved->hash != r->ident->hash) {
                 return PERM_STALE;
-            }        }
+            }
+        }
         return PERM_ALLOW;
     }
 

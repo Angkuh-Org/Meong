@@ -38,6 +38,16 @@ int str_ieq(const char *a, const char *b);
 char *trim_ws(char *s);
 void fmt_count(long long v, char *out, size_t cap);
 
+/* Preview-only sanitizer shared by edit and write. */
+enum {
+    PV_TABS = 1u << 0,     /* render a tab as four spaces */
+    PV_REPLACE = 1u << 1,  /* replace a dropped control with '?' */
+    PV_ELLIPSIS = 1u << 2, /* append ... when the cap is hit */
+};
+size_t preview_sanitize_line(const char *s, size_t n, char *out, size_t cap,
+                             unsigned flags, size_t *dropped);
+size_t preview_control_count(const char *s, size_t n);
+
 char *read_file(const char *path, size_t *len_out);
 int write_file_atomic(const char *path, const char *data, size_t len);
 
@@ -50,6 +60,26 @@ int write_file_atomic(const char *path, const char *data, size_t len);
 int write_file_replace(const char *path, const char *data, size_t len);
 int write_file_replace_at(int dfd, const char *base, const char *data,
                           size_t len, mode_t mode, uid_t uid, gid_t gid);
+
+/*
+ * Create BASE in an already-walked parent. Never replaces: publication is
+ * renameat2(RENAME_NOREPLACE), with a linkat fallback only when the filesystem
+ * or kernel does not support the flag. No directory creation, no final
+ * symlink follow, no O_CREAT at the final name. MODE is the final mode.
+ */
+int write_file_create_at(int dfd, const char *base, const char *data,
+                         size_t len, mode_t mode);
+
+/*
+ * Replace an existing file with a keyed, non-embedding temp name. Kept apart
+ * from write_file_replace_at so edit's shipped temp name stays byte-for-byte
+ * compatible; write uses this variant.
+ */
+int write_file_replace_at_keyed(int dfd, const char *base, const char *data,
+                                size_t len, mode_t mode, uid_t uid, gid_t gid);
+
+/* Non-static so the fault-injection tests can --wrap it. */
+int meong_renameat2_noreplace(int dfd, const char *oldn, const char *newn);
 
 /* Keyed SipHash-2-4 over the whole buffer; used for approval identity. */
 unsigned long long meong_siphash24(const void *data, size_t len);

@@ -135,8 +135,8 @@ static void test_tools_json(void) {
         return;
     }
     int root = jdoc_root(&d);
-    ok(jtype(&d, root) == J_ARRAY && jlen(&d, root) == 4,
-       "tools_json is an array of four tools");
+    ok(jtype(&d, root) == J_ARRAY && jlen(&d, root) == 5,
+       "tools_json is an array of five tools");
 
     static const char *want[] = {"read_file", "search", "list_dir"};
     for (int i = 0; i < 3; i++) {
@@ -245,6 +245,35 @@ static void test_tools_json(void) {
     ok(rav && strcmp(rav, "boolean") == 0,
        "edit offers boolean replace_all");
     free(rav);
+
+    /* write: path/content required, overwrite optional bool, 24 KiB cap. */
+    fn = jget(&d, jgeti(&d, root, 4), "function");
+    int wn = jget(&d, fn, "name");
+    char *wv = wn >= 0 ? jstring_alloc(&d, wn) : NULL;
+    ok(wv && strcmp(wv, "write") == 0, "tool 4 is write");
+    free(wv);
+    int wdesc = jget(&d, fn, "description");
+    char *wdv = wdesc >= 0 ? jstring_alloc(&d, wdesc) : NULL;
+    ok(wdv && strstr(wdv, "overwrite") && strstr(wdv, "24 KiB") &&
+           strstr(wdv, "parent directory"),
+       "write documents overwrite, the cap and the parent rule");
+    free(wdv);
+    params = jget(&d, fn, "parameters");
+    props = jget(&d, params, "properties");
+    req = jget(&d, params, "required");
+    ok(jlen(&d, req) == 2, "write requires two arguments");
+    char *w0 = jlen(&d, req) == 2 ? jstring_alloc(&d, jgeti(&d, req, 0)) : NULL;
+    char *w1 = jlen(&d, req) == 2 ? jstring_alloc(&d, jgeti(&d, req, 1)) : NULL;
+    ok(w0 && w1 && strcmp(w0, "path") == 0 &&
+           strcmp(w1, "content") == 0,
+       "write requires path and content");
+    free(w0);
+    free(w1);
+    int ow = jget(&d, props, "overwrite");
+    char *owv = ow >= 0 ? jstring_alloc(&d, jget(&d, ow, "type")) : NULL;
+    ok(owv && strcmp(owv, "boolean") == 0,
+       "write offers boolean overwrite");
+    free(owv);
     jdoc_free(&d);
 }
 
@@ -871,6 +900,15 @@ static void test_summary(void) {
                   "\"new_string\":\"y\"}",
                   cwd, "src/a.c",
                   "summary shows only the edit path, never old_string");
+    check_summary("write",
+                  "{\"path\":\"/home/u/proj/src/a.c\",\"content\":\"x\"}",
+                  cwd, "+ src/a.c",
+                  "summary marks a create-only write with +");
+    check_summary("write",
+                  "{\"path\":\"/home/u/proj/src/a.c\",\"content\":\"x\","
+                  "\"overwrite\":true}",
+                  cwd, "~ src/a.c",
+                  "summary marks an overwrite-permitted write with ~");
     const char *home = getenv("HOME");
     if (home && *home) {
         char args[512];

@@ -96,8 +96,11 @@ User contract: [`tools.md`](tools.md).
 `tool_call_summary()`, the display-only shortening of a call's arguments;
 `exec.c` implements the three read-only handlers (`read_file` with a metadata
 header and line range, `search` with glob/context, `list_dir` with type/size);
-`edit.c` implements the one mutating handler: exact-unique match, bounded
-preview, full-file identity, then atomic temp+fsync+rename. Every tool is
+`edit.c` implements exact-unique replace with a bounded preview, full-file
+identity, then atomic temp+fsync+rename; `write.c` implements create-only and
+explicit overwrite, with a `create`/`overwrite` preview, a parent-anchored
+create identity, and a temp+fsync+`RENAME_NOREPLACE` publish (the keyed
+overwrite path is temp+fsync+rename). Every tool is
 registered with an action class in `tools.c`; `tool_execute()` resolves the
 top-level path, denies a protected path, runs the prepare hook, then calls the
 gate before the handler. `perm.c` holds the pure policy, the protected list,
@@ -112,9 +115,12 @@ directory. `chat.c` runs at most eight tool rounds and fills an
 
 The permission card replaces the composer: 7 rows below 11 terminal rows, 8
 rows at 11–13 (a read stays at 8). A mutate card grows with its preview lines
-(up to 15 rows) and shows up to 3+3 changed lines; short terminals show the
-`path:line` header plus fewer lines. `chat_height()` and `perm_draw()` share
-`perm_card_h()`, so the reserved rows and the drawn card cannot disagree.
+(up to 15 rows): `edit` shows up to 3+3 changed lines; `write` shows the first
+three and last content line with a `... K lines not shown` marker. Short
+terminals show the header plus fewer lines. `chat_height()` and `perm_draw()`
+share `perm_card_h()`, so the reserved rows and the drawn card cannot disagree.
+The card keys the write preview off the registered `ask.tool` and the preview's
+first word; no new ask kind or `ToolAsk` field.
 
 ## `src/cli/`
 
@@ -186,9 +192,14 @@ composer: insert, delete, word kill, and history.
 
 `Buf` is the growable byte buffer, with `buf_printf()` and JSON string escaping.
 The file also provides allocation helpers that exit on out-of-memory,
-`now_sec()` on `CLOCK_MONOTONIC`, UTF-8 decode/encode, case-insensitive
-comparison, count formatting, and file helpers including atomic writes and
-`mkdir_p()`.
+`now_sec()` on `CLOCK_MONOTONIC`, UTF-8 decode/encode, the shared
+`preview_sanitize_line()` table used by the edit and write cards,
+case-insensitive comparison, count formatting, and file helpers including the
+atomic replace/create writers and `mkdir_p()`. `write_file_create_at()` uses a
+raw `syscall(SYS_renameat2, ...)` with `RENAME_NOREPLACE` because Termux's API
+24 libc has no `renameat2` symbol; the `linkat` fallback is limited to
+`ENOSYS`/`EINVAL`/`EOPNOTSUPP`. `write_file_replace_at_keyed()` uses a
+non-embedding `.mng.<hash>.<attempt>` temp and never unlinks an unknown temp.
 
 ## `tools/` and `tests/`
 
@@ -199,4 +210,7 @@ delta scanner, layout truncation, streaming cursor) and the layout benchmark.
 runs `tests/python/mock_paig.py` for the wire paths, runs
 `tests/python/tui_test.py` as the pty test, and then makes its own tmux
 `capture-pane` screen assertions for the TUI, including the tool tree, the
-expanded output box, and the permission row.
+expanded output box, the edit card, the create/overwrite write cards, the
+no-card refusal, and the 40x12 fallback. `tests/c/write_test.c` covers the
+handler matrix directly so 3A stays catalog-neutral; `write_fault_test.c`
+drives the create/overwrite failure paths through `--wrap` seams.

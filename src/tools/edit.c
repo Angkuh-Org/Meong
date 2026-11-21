@@ -54,106 +54,17 @@ static int failf(char *err, size_t cap, const char *fmt, ...) {
     return TOOL_ERR;
 }
 
-static char *arg_bytes(const JDoc *d, int root, const char *key, size_t *len,
-                       char *err, size_t cap) {
-    int t = jget(d, root, key);
-    if (t < 0) {
-        failf(err, cap, "ERROR: edit: missing required argument: %s", key);
-        return NULL;
-    }
-    if (jtype(d, t) != J_STRING) {
-        failf(err, cap, "ERROR: edit: argument %s must be a string", key);
-        return NULL;
-    }
-    Buf b;
-    buf_init(&b);
-    if (jstring(d, t, &b) != 0) {
-        buf_free(&b);
-        failf(err, cap, "ERROR: edit: cannot decode %s", key);
-        return NULL;
-    }
-    if (memchr(b.p, 0, b.len)) {
-        buf_free(&b);
-        failf(err, cap, "ERROR: edit: embedded NUL in %s", key);
-        return NULL;
-    }
-    *len = b.len;
-    char *s = buf_take(&b);
-    if (!s) {
-        failf(err, cap, "ERROR: edit: out of memory");
-    }
-    return s;
-}
-
 /*
- * Preview text only: drop C0/DEL/C1, ESC sequences, bidi and zero-width
- * codepoints, keep combining marks, and stop at the first newline. This runs
- * before the card, so an escape blob cannot eat the 512-byte budget.
+ * Preview text only. The shared sanitizer owns the control/ESC/bidi table;
+ * edit keeps its original flags so the shipped card bytes do not move.
+ *
+ * TODO(fix): PV_ELLIPSIS only drops a tab from the card (`\tfoo` -> `foo`),
+ * so the human can approve a diff whose indentation looks different. write
+ * passes PV_TABS; add it here and a card test that asserts the four-space
+ * render. The written bytes are already exact; this is preview-only.
  */
 static size_t sanitize_line(const char *s, size_t n, char *out, size_t cap) {
-    size_t o = 0;
-    size_t i = 0;
-    while (i < n && s[i] != '\n' && s[i] != '\r') {
-        unsigned char c = (unsigned char)s[i];
-        if (c == 0x1b) {
-            i++;
-            if (i < n && s[i] == '[') {
-                i++;
-                while (i < n && !((unsigned char)s[i] >= 0x40 &&
-                                  (unsigned char)s[i] <= 0x7e)) {
-                    i++;
-                }
-                if (i < n) {
-                    i++;
-                }
-            } else if (i < n && s[i] == ']') {
-                i++;
-                while (i < n) {
-                    if (s[i] == 0x07) {
-                        i++;
-                        break;
-                    }
-                    if (s[i] == 0x1b && i + 1 < n && s[i + 1] == '\\') {
-                        i += 2;
-                        break;
-                    }
-                    i++;
-                }
-            } else if (i < n) {
-                i++;
-            }
-            continue;
-        }
-        wchar_t wc = 0;
-        int k = utf8_next(s + i, n - i, &wc);
-        if (k <= 0) {
-            k = 1;
-            wc = 0xFFFD;
-        }
-        int drop = wc < 32 || wc == 0x7f || (wc >= 0x80 && wc <= 0x9f) ||
-                   (wc >= 0x202a && wc <= 0x202e) ||
-                   (wc >= 0x2066 && wc <= 0x2069) || wc == 0x200e ||
-                   wc == 0x200f || wc == 0x061c ||
-                   (wc >= 0x200b && wc <= 0x200d) || wc == 0xfeff;
-        if (!drop) {
-            if (o + (size_t)k + 1 > cap) {
-                if (o + 4 <= cap) {
-                    memcpy(out + o, "...", 3);
-                    o += 3;
-                }
-                break;
-            }
-            if (k == 1 && wc == 0xFFFD && c >= 0x80) {
-                out[o++] = '?';
-            } else {
-                memcpy(out + o, s + i, (size_t)k);
-                o += (size_t)k;
-            }
-        }
-        i += (size_t)k;
-    }
-    out[o] = '\0';
-    return o;
+    return preview_sanitize_line(s, n, out, cap, PV_ELLIPSIS, NULL);
 }
 
 #define PREVIEW_LINE_MAX 256
@@ -363,16 +274,19 @@ int tool_prep_edit(const char *cwd, const char *resolved, const JDoc *d,
     size_t path_len = 0;
     size_t old_len = 0;
     size_t new_len = 0;
-    char *path = arg_bytes(d, root, "path", &path_len, err, err_cap);
+    char *path = tool_arg_string(d, root, "path", "edit", &path_len, err,
+                                 err_cap);
     if (!path) {
         return TOOL_ERR;
     }
-    char *old = arg_bytes(d, root, "old_string", &old_len, err, err_cap);
+    char *old = tool_arg_string(d, root, "old_string", "edit", &old_len, err,
+                                err_cap);
     if (!old) {
         free(path);
         return TOOL_ERR;
     }
-    char *new = arg_bytes(d, root, "new_string", &new_len, err, err_cap);
+    char *new = tool_arg_string(d, root, "new_string", "edit", &new_len, err,
+                                err_cap);
     if (!new) {
         free(path);
         free(old);
@@ -595,6 +509,7 @@ int tool_prep_edit(const char *cwd, const char *resolved, const JDoc *d,
     out->ident.mode = (unsigned)plan->mode;
     out->ident.hash = meong_siphash24(body.p, body.len);
     out->ident.valid = 1;
+    out->ident.kind = TOOL_IDENT_EXISTING;
 
     out->priv = plan;
     out->free_priv = plan_free;

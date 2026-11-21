@@ -1,9 +1,9 @@
 # Tools
 
-Meong's TUI exposes four tools: three **read-only** (`read_file`, `search`,
-`list_dir`) and one mutating (`edit`). They are sent only when the selected
-model reports `supports_function_calling: true`; `--oneshot` does not send a
-`tools` array. There is no shell, `write`, or delete tool yet.
+Meong's TUI exposes five tools: three **read-only** (`read_file`, `search`,
+`list_dir`) and two mutating (`edit`, `write`). They are sent only when the
+selected model reports `supports_function_calling: true`; `--oneshot` does not
+send a `tools` array. There is no shell or delete tool yet.
 
 | Tool | Arguments | Behavior |
 | --- | --- | --- |
@@ -11,6 +11,7 @@ model reports `supports_function_calling: true`; `--oneshot` does not send a
 | `search` | `pattern`, `path`, `glob?`, `context_lines?` | POSIX regex; glob; default context 2 |
 | `list_dir` | `path` | Type + size, sorted |
 | `edit` | `path`, `old_string`, `new_string`, `replace_all?` | Exact-unique replace; atomic; mutating |
+| `write` | `path`, `content`, `overwrite?` | Create-only default; atomic; mutating |
 
 Details:
 
@@ -29,6 +30,22 @@ Details:
   setuid/setgid target. The result is
   `OK: edited path:Lstart-Lend (+M -N)` (plus `xK` for `replace_all`) and a
   bounded excerpt of the edited lines; it never echoes the full arguments.
+- `write` creates a new text file by default. If the target exists, it is
+  refused until `overwrite:true` is passed; an existing file is never replaced
+  silently. The parent directory must already exist. `content` is limited to
+  24 KiB and must not contain NUL; because the 64 KiB argument cap applies to
+  the raw JSON, a payload full of escapes (control characters) can hit the
+  wire limit before 24 KiB. Create writes a 0600 temp, sets the final
+  mode to `0666 & ~umask`, `fsync`s, and publishes with
+  `renameat2(RENAME_NOREPLACE)` (a `linkat` fallback only when the kernel or
+  filesystem lacks the flag); it never falls back to a replacing `rename`.
+  Overwrite preserves the target mode and re-checks the full-file identity,
+  then writes temp+`fsync`+`rename`. A final or mid-path symlink, a directory,
+  a hard-linked file, a foreign-owned file, a setuid/setgid target, a file on a
+  different filesystem, a binary target, and a target over 1 MiB are refused.
+  Identical bytes return `OK: unchanged` after approval without replacing the
+  inode. The result is `OK: created path (N B)`, `OK: overwrote path (M -> N B)`,
+  or `OK: unchanged path (N B)`; content is never echoed.
 
 ## How paths resolve
 
@@ -46,10 +63,13 @@ model's tool-name string.
   immediately; a path outside turns the call row into `? name  args` and
   replaces the composer with a permission card. `search` asks on its root
   argument — the path the card shows — and one approval covers that call.
-- **`mutate`** (`edit`): always asks, even inside the cwd. The card shows the
-  path, line and a bounded `-`/`+` diff. `--allow-writes` is the explicit
-  standing opt-out; it skips the card but **not** the protected list, the
-  symlink/hardlink/owner checks, or the stale-content re-check.
+- **`mutate`** (`edit`, `write`): always asks, even inside the cwd. The edit
+  card shows the path, line and a bounded `-`/`+` diff; the write card shows
+  the resolved path, the create or overwrite verb, the byte/line counts, and
+  a sanitized sample. `--allow-writes` is the explicit standing opt-out; it
+  skips the card but **not** the protected list, the
+  symlink/hardlink/owner checks, the stale-content re-check, or the
+  no-replace create primitive.
 - **`exec`** (a future allowlisted `run`): always asks, even inside the cwd.
   `--allow-exec` is the explicit opt-out; it only covers allowlisted commands,
   never a free shell.
@@ -73,16 +93,20 @@ retry it. A hardlink to a protected file inside the cwd is still readable;
 the model cannot create one because there is no exec tool.
 
 The card repeats the pending call with the model's raw JSON arguments for
-reads, or a bounded path/line/`-`/`+` diff for `edit`. It offers `[ Allow ]`,
+reads, a bounded path/line/`-`/`+` diff for `edit`, or a
+`create`/`overwrite` path + size + sample preview for `write`. It offers
+`[ Allow ]`,
 `[ Reject ]` and, for reads only, `[ Always allow this session ]`. It opens
 with **Reject** focused, so `enter` rejects. `←→`/`tab` move the highlight,
 `enter`/`space` activate it, `y`/`n` are shortcuts, and a click on a button
 activates it. Allow and Reject apply to that call only. Always grants
 outside-cwd **reads** for the rest of the process and is cleared by `/clear`;
-it is never offered for `edit` and does not unlock writes or exec. The mutate
-card grows with the preview (up to 15 rows) and shows up to three removed and
-three added lines of the changed block, with `... (+K lines)` when it is
-larger; short terminals show the header plus fewer lines.
+it is never offered for `edit` or `write` and does not unlock writes or exec.
+The mutate card grows with the preview (up to 15 rows): `edit` shows up to
+three removed and three added lines of the changed block, with
+`... (+K lines)` when it is larger; `write` shows the first three and last
+content line, with `... K lines not shown` between them. Short terminals show
+the header plus fewer lines.
 
 The card is a confirmation, not a sandbox. `--yolo`, `--allow-writes`, and
 `--allow-exec` are standing opt-outs: they carry the same credential risk as
@@ -109,6 +133,7 @@ result, never the tree or metadata.
 - Tool results are one `role:"tool"` message per call, in call order, with the call id and name.
 - Results up to 16 KiB stay inline. Larger results keep the first 1/5 and last 4/5 with an omission notice; the full text is written under the cache directory's `tool-output/` path. This bound applies to successful results; an error is a short string.
 - `edit` results are intentionally small: the success envelope plus an excerpt of the edited lines, and one-line errors for a missing/duplicate match, a stale approval, a protected path, a link, or a write failure. The full old/new arguments are never echoed into the transcript.
+- `write` results are one short line: `OK: created path (N B)`, `OK: overwrote path (M -> N B)`, or `OK: unchanged path (N B)`. Errors name the path and the reason (already exists, missing parent, directory, symlink, hardlink, owner, binary, cap, NUL, disk, stale). Content is never echoed.
 - A turn stops after 8 tool rounds. Cancelling a tool chain fills an `[interrupted by user]` result into every unanswered call position.
 - Tool output is treated as untrusted data: the system policy tells the model not to follow instructions found inside it. That reduces, but does not eliminate, prompt-injection risk.
 
