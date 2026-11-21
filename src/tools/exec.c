@@ -229,9 +229,12 @@ static void scan_range(FILE *f, long long start, long long end, Buf *body,
     *lines_out = total;
 }
 
-int tool_run_read_file(const JDoc *d, int args, void *ud,
-                       ToolAuthorizeFn authorize, ToolAsk *ask, Buf *out,
-                       char *err, size_t err_cap) {
+int tool_run_read_file(const char *cwd, const JDoc *d, int args, void *ud,
+                       ToolAuthorizeFn authorize, ToolAsk *ask,
+                       const ToolPrep *prep, Buf *out, char *err,
+                       size_t err_cap) {
+    (void)cwd;
+    (void)prep;
     Ctx c = {.ud = ud, .authorize = authorize, .ask = ask,
              .action = TOOL_ACT_READ, .tool = "read_file", .out = out,
              .err = err, .err_cap = err_cap};
@@ -547,9 +550,12 @@ static int walk(Ctx *c, Search *s, const char *dir, int depth) {
     return rc;
 }
 
-int tool_run_search(const JDoc *d, int args, void *ud,
-                    ToolAuthorizeFn authorize, ToolAsk *ask, Buf *out,
-                    char *err, size_t err_cap) {
+int tool_run_search(const char *cwd, const JDoc *d, int args, void *ud,
+                    ToolAuthorizeFn authorize, ToolAsk *ask,
+                    const ToolPrep *prep, Buf *out, char *err,
+                    size_t err_cap) {
+    (void)cwd;
+    (void)prep;
     Ctx c = {.ud = ud, .authorize = authorize, .ask = ask,
              .action = TOOL_ACT_READ, .tool = "search", .out = out,
              .err = err, .err_cap = err_cap};
@@ -643,9 +649,12 @@ done:
 
 /* ---- list_dir ----------------------------------------------------------- */
 
-int tool_run_list_dir(const JDoc *d, int args, void *ud,
-                      ToolAuthorizeFn authorize, ToolAsk *ask, Buf *out,
-                      char *err, size_t err_cap) {
+int tool_run_list_dir(const char *cwd, const JDoc *d, int args, void *ud,
+                      ToolAuthorizeFn authorize, ToolAsk *ask,
+                      const ToolPrep *prep, Buf *out, char *err,
+                      size_t err_cap) {
+    (void)cwd;
+    (void)prep;
     Ctx c = {.ud = ud, .authorize = authorize, .ask = ask,
              .action = TOOL_ACT_READ, .tool = "list_dir", .out = out,
              .err = err, .err_cap = err_cap};

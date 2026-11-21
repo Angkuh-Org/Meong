@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 
+#include "json/json.h"
 #include "tools/perm.h"
 #include "util/util.h"
 
@@ -31,6 +32,16 @@ enum {
  */
 typedef enum PermDecision (*ToolAuthorizeFn)(void *ud, PermReq *req);
 
+/*
+ * Build the preview and the content identity before the human is asked. The
+ * layer has already filled out->dfd/base/resolved from the dirfd walk, and has
+ * already denied a protected path; prep must not authorize or write. On error
+ * the call returns TOOL_ERR and no card opens.
+ */
+typedef int (*ToolPrepFn)(const char *cwd, const char *resolved,
+                          const JDoc *d, int root, ToolPrep *out,
+                          char *err, size_t err_cap);
+
 /* The static, byte-stable OpenAI tools array. */
 const char *tools_json(void);
 
@@ -38,10 +49,12 @@ const char *tools_json(void);
  * Execute one tool call. The class comes from the registration table, not
  * from the caller. On TOOL_NEED_PERM, ask receives the operation record and
  * nothing is executed. On TOOL_ERR, err receives a model-facing message.
+ * cwd is the canonical working directory; a mutation never executes without
+ * a prepare callback and a matching identity.
  */
 int tool_execute(const char *name, const char *args, size_t args_len,
-                 void *ud, ToolAuthorizeFn authorize, ToolAsk *ask,
-                 Buf *out, char *err, size_t err_cap);
+                 const char *cwd, void *ud, ToolAuthorizeFn authorize,
+                 ToolAsk *ask, Buf *out, char *err, size_t err_cap);
 
 /*
  * Bound a result for the transcript: inline head/tail plus a notice. When

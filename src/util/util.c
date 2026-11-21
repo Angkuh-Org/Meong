@@ -463,3 +463,273 @@ int write_file_atomic(const char *path, const char *data, size_t len) {
     }
     return 0;
 }
+
+/* ---- atomic replace ---------------------------------------------------- */
+
+static int write_all_fd(int fd, const char *data, size_t len) {
+    size_t off = 0;
+    while (off < len) {
+        ssize_t n = write(fd, data + off, len - off);
+        if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            return -1;
+        }
+        off += (size_t)n;
+    }
+    return 0;
+}
+
+/*
+ * The parent fd comes from the dirfd walk, so a concurrent rename of an
+ * intermediate directory cannot redirect the temp or the rename. The temp is
+ * hidden, exclusive and no-follow: a planted symlink fails EEXIST, not a
+ * truncate. fchown before fchmod because chown clears setuid/setgid.
+ */
+int write_file_replace_at(int dfd, const char *base, const char *data,
+                          size_t len, mode_t mode, uid_t uid, gid_t gid) {
+    if (dfd < 0 || !base || !*base || strchr(base, '/') ||
+        strcmp(base, ".") == 0 || strcmp(base, "..") == 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    size_t blen = strlen(base);
+    if (blen > NAME_MAX - 8) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    char tmp[NAME_MAX + 8];
+    snprintf(tmp, sizeof tmp, ".%s.mng", base);
+
+    int fd = openat(dfd, tmp, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC |
+                                   O_NOFOLLOW, 0600);
+    if (fd < 0 && errno == EEXIST) {
+        struct stat tst;
+        if (fstatat(dfd, tmp, &tst, AT_SYMLINK_NOFOLLOW) == 0 &&
+            S_ISREG(tst.st_mode) && tst.st_uid == geteuid() &&
+            time(NULL) - tst.st_mtime > 60) {
+            unlinkat(dfd, tmp, 0);
+            fd = openat(dfd, tmp, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC |
+                                       O_NOFOLLOW, 0600);
+        }
+    }
+    if (fd < 0) {
+        return -1;
+    }
+    if (geteuid() == 0 && (uid != 0 || gid != 0)) {
+        if (fchown(fd, uid, gid) != 0) {
+            goto fail;
+        }
+    }
+    if (fchmod(fd, mode & 07777) != 0) {
+        goto fail;
+    }
+    if (write_all_fd(fd, data, len) != 0 || fsync(fd) != 0) {
+        goto fail;
+    }
+    if (close(fd) != 0) {
+        fd = -1;
+        goto fail;
+    }
+    fd = -1;
+    if (renameat(dfd, tmp, dfd, base) != 0) {
+        goto fail;
+    }
+    {
+        int sfd = openat(dfd, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        if (sfd >= 0) {
+            (void)fsync(sfd);
+            close(sfd);
+        }
+    }
+    return 0;
+
+fail:
+    {
+        int saved = errno;
+        if (fd >= 0) {
+            close(fd);
+        }
+        unlinkat(dfd, tmp, 0);
+        errno = saved;
+        return -1;
+    }
+}
+
+int write_file_replace(const char *path, const char *data, size_t len) {
+    if (!path || !*path) {
+        errno = EINVAL;
+        return -1;
+    }
+    char dir[PATH_MAX];
+    const char *base = strrchr(path, '/');
+    if (!base || !base[1]) {
+        errno = EINVAL;
+        return -1;
+    }
+    base++;
+    size_t dlen = (size_t)(base - path);
+    if (dlen == 0) {
+        dir[0] = '/';
+        dir[1] = '\0';
+    } else {
+        if (dlen >= sizeof dir) {
+            errno = ENAMETOOLONG;
+            return -1;
+        }
+        memcpy(dir, path, dlen);
+        dir[dlen] = '\0';
+        size_t n = strlen(dir);
+        while (n > 1 && dir[n - 1] == '/') {
+            dir[--n] = '\0';
+        }
+    }
+    int dfd = open(dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+    int syncable = 1;
+    if (dfd < 0 && errno == EACCES) {
+        dfd = open(dir, O_PATH | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+        syncable = 0;
+    }
+    (void)syncable;
+    if (dfd < 0) {
+        return -1;
+    }
+    struct stat st;
+    if (fstatat(dfd, base, &st, AT_SYMLINK_NOFOLLOW) != 0) {
+        int saved = errno;
+        close(dfd);
+        errno = saved;
+        return -1;
+    }
+    if (!S_ISREG(st.st_mode)) {
+        close(dfd);
+        errno = EINVAL;
+        return -1;
+    }
+    if (st.st_nlink > 1) {
+        close(dfd);
+        errno = EMLINK;
+        return -1;
+    }
+    if (st.st_uid != geteuid() && geteuid() != 0) {
+        close(dfd);
+        errno = EPERM;
+        return -1;
+    }
+    int r = write_file_replace_at(dfd, base, data, len, st.st_mode, st.st_uid,
+                                  st.st_gid);
+    int saved = errno;
+    close(dfd);
+    errno = saved;
+    return r;
+}
+
+/* ---- keyed SipHash-2-4 ------------------------------------------------- */
+
+static unsigned char sip_key[16];
+static int sip_key_ready;
+
+static unsigned long long rotl64(unsigned long long x, int b) {
+    return (x << b) | (x >> (64 - b));
+}
+
+static void sip_round(unsigned long long v[4]) {
+    v[0] += v[1];
+    v[1] = rotl64(v[1], 13);
+    v[1] ^= v[0];
+    v[0] = rotl64(v[0], 32);
+    v[2] += v[3];
+    v[3] = rotl64(v[3], 16);
+    v[3] ^= v[2];
+    v[0] += v[3];
+    v[3] = rotl64(v[3], 21);
+    v[3] ^= v[0];
+    v[2] += v[1];
+    v[1] = rotl64(v[1], 17);
+    v[1] ^= v[2];
+    v[2] = rotl64(v[2], 32);
+}
+
+static void sip_key_init(void) {
+    if (sip_key_ready) {
+        return;
+    }
+    int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+    int got = 0;
+    if (fd >= 0) {
+        got = (int)read(fd, sip_key, sizeof sip_key);
+        close(fd);
+    }
+    if (got != (int)sizeof sip_key) {
+        /* A weak key is still better than a fixed one; this path is only for
+         * a host with no /dev/urandom. The control is stale-write detection,
+         * not a cryptographic boundary. */
+        unsigned long long seed = (unsigned long long)time(NULL) ^
+                                  ((unsigned long long)getpid() << 32);
+        for (size_t i = 0; i < sizeof sip_key; i++) {
+            seed = seed * 6364136223846793005ULL + 1;
+            sip_key[i] = (unsigned char)(seed >> 56);
+        }
+    }
+    sip_key_ready = 1;
+}
+
+unsigned long long meong_siphash24(const void *data, size_t len) {
+    sip_key_init();
+    unsigned long long k0, k1;
+    memcpy(&k0, sip_key, 8);
+    memcpy(&k1, sip_key + 8, 8);
+    unsigned long long v[4] = {
+        0x736f6d6570736575ULL ^ k0,
+        0x646f72616e646f6dULL ^ k1,
+        0x6c7967656e657261ULL ^ k0,
+        0x7465646279746573ULL ^ k1,
+    };
+    const unsigned char *p = data;
+    size_t n = len;
+    for (; n >= 8; n -= 8, p += 8) {
+        unsigned long long m;
+        memcpy(&m, p, 8);
+        v[3] ^= m;
+        sip_round(v);
+        sip_round(v);
+        v[0] ^= m;
+    }
+    unsigned long long b = ((unsigned long long)n) << 56;
+    switch (n) {
+    case 7:
+        b |= (unsigned long long)p[6] << 48;
+        /* fall through */
+    case 6:
+        b |= (unsigned long long)p[5] << 40;
+        /* fall through */
+    case 5:
+        b |= (unsigned long long)p[4] << 32;
+        /* fall through */
+    case 4:
+        b |= (unsigned long long)p[3] << 24;
+        /* fall through */
+    case 3:
+        b |= (unsigned long long)p[2] << 16;
+        /* fall through */
+    case 2:
+        b |= (unsigned long long)p[1] << 8;
+        /* fall through */
+    case 1:
+        b |= (unsigned long long)p[0];
+        break;
+    default:
+        break;
+    }
+    v[3] ^= b;
+    sip_round(v);
+    sip_round(v);
+    v[0] ^= b;
+    v[2] ^= 0xff;
+    sip_round(v);
+    sip_round(v);
+    sip_round(v);
+    sip_round(v);
+    return v[0] ^ v[1] ^ v[2] ^ v[3];
+}

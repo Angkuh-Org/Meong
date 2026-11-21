@@ -125,11 +125,28 @@ ok "tools: accumulator handles whole and fragmented calls"
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/tools_test" \
     tests/c/tools_test.c src/tools/tools.c src/tools/exec.c \
-    src/tools/perm.c src/json/json.c src/util/util.c \
+    src/tools/edit.c src/tools/perm.c src/json/json.c src/util/util.c \
     || fail "tools test did not compile"
 "$TMP/tools_test" >/dev/null \
     || fail "tool handlers failed"
 ok "tools: read_file, search, list_dir and result bounding"
+
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
+    -o "$TMP/write_replace_test" \
+    tests/c/write_replace_test.c src/util/util.c \
+    || fail "write replace test did not compile"
+"$TMP/write_replace_test" >/dev/null \
+    || fail "atomic replace failed"
+ok "tools: atomic replace preserves mode and refuses links"
+
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
+    -o "$TMP/edit_test" \
+    tests/c/edit_test.c src/tools/tools.c src/tools/exec.c \
+    src/tools/edit.c src/tools/perm.c src/json/json.c src/util/util.c \
+    || fail "edit test did not compile"
+"$TMP/edit_test" >/dev/null \
+    || fail "edit handler failed"
+ok "tools: edit exact-unique, CRLF, stale and protected"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/perm_test" tests/c/perm_test.c src/tools/perm.c \
@@ -183,6 +200,10 @@ print(s.getsockname()[1])
 s.close()
 PY
 )
+
+mkdir -p "$TMP/edit"
+printf 'alpha\nbeta\ngamma\n' >"$TMP/edit/notes.txt"
+export MOCK_EDIT_ARGS="{\"path\":\"$TMP/edit/notes.txt\",\"old_string\":\"beta\\ngamma\",\"new_string\":\"BETA\\nGAMMA\"}"
 
 python3 tests/python/mock_paig.py --port "$PORT" --port-file "$TMP/port" \
     >"$TMP/mock.log" 2>&1 &
@@ -2015,6 +2036,156 @@ PY
     printf '%s\n' "$pane" | grep -Fq '✗ read_file  /proj/version.txt' \
         || fail "clicking reject did not deny the call"
     ok "permission card rejects on a mouse click"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    TMUX_SESS="Meong-edit-card-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 90 -y 26 -c "$PWD" \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/edit --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'go'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '[ Reject ]'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq '? edit' \
+        || fail "edit card lost its tool row"
+    printf '%s\n' "$pane" | grep -Fq 'notes.txt:2 -2 +2' \
+        || fail "edit card lost the path/line/counts header"
+    printf '%s\n' "$pane" | grep -Fq -- '-beta' \
+        || fail "edit card lost the first removed line"
+    printf '%s\n' "$pane" | grep -Fq -- '-gamma' \
+        || fail "edit card lost the second removed line"
+    printf '%s\n' "$pane" | grep -Fq -- '+BETA' \
+        || fail "edit card lost the first added line"
+    printf '%s\n' "$pane" | grep -Fq -- '+GAMMA' \
+        || fail "edit card lost the second added line"
+    printf '%s\n' "$pane" | grep -Fq '[ Allow ]' \
+        || fail "edit card lost the allow button"
+    printf '%s\n' "$pane" | grep -Fq '[ Reject ]' \
+        || fail "edit card lost the reject button"
+    if printf '%s\n' "$pane" | grep -Fq '[ Always'; then
+        fail "edit card offered a session mutate grant"
+    fi
+    printf 'alpha\nbeta\ngamma\n' >"$TMP/edit/expected"
+    tmux send-keys -t "$TMUX_SESS" n
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'permission denied'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    cmp -s "$TMP/edit/notes.txt" "$TMP/edit/expected" \
+        || fail "a denied edit changed the file"
+    ok "edit card renders the diff and denies with n"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    TMUX_SESS="Meong-edit-allow-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 90 -y 26 -c "$PWD" \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/edit --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'go'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '[ Reject ]'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -t "$TMUX_SESS" y
+    i=0
+    while [ "$i" -lt 200 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'tool said: OK: edited'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq 'tool said: OK: edited' \
+        || fail "edit y did not finish the tool round"
+    printf 'alpha\nBETA\nGAMMA\n' >"$TMP/edit/expected"
+    cmp -s "$TMP/edit/notes.txt" "$TMP/edit/expected" \
+        || fail "edit y did not write the expected bytes"
+    ok "edit card allows with y and writes the expected bytes"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    printf 'alpha\nbeta\ngamma\n' >"$TMP/edit/notes.txt"
+    TMUX_SESS="Meong-edit-narrow-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 40 -y 12 -c "$PWD" \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         '$BIN_ABS' --url '$URL' --model mock/edit --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'go'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq '[ Reject ]'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq '[ Allow ]' \
+        || fail "narrow edit card lost the allow button"
+    printf '%s\n' "$pane" | grep -Fq '[ Reject ]' \
+        || fail "narrow edit card lost the reject button"
+    printf '%s\n' "$pane" | grep -Fq 'more lines' \
+        || fail "narrow edit card hid lines without a marker"
+    if printf '%s\n' "$pane" | grep -Fq -- '-beta'; then
+        fail "narrow edit card showed a partial diff without a marker"
+    fi
+    ok "edit card falls back to an honest marker at 40x12"
     tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
     TMUX_SESS=""
 

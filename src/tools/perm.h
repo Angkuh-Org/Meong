@@ -19,11 +19,14 @@ enum ToolAction {
     TOOL_ACT_EXEC,
 };
 
-/* The numeric values match the old 1/0/-1 callback contract. */
+/* The first three values match the old 1/0/-1 callback contract; the two
+ * negative additions are failures, never an allow. */
 enum PermDecision {
     PERM_DENY = 0,
     PERM_ALLOW = 1,
     PERM_ASK = -1,
+    PERM_STALE = -2,
+    PERM_DENY_PROTECTED = -3,
 };
 
 enum ToolAskKind {
@@ -31,6 +34,35 @@ enum ToolAskKind {
     TOOL_ASK_COMMAND,
     TOOL_ASK_MUTATE,
 };
+
+/*
+ * What the human approved, not what the model asked for. Every field is
+ * captured from the same fd that was read for the preview; hash is keyed
+ * SipHash-2-4 over the whole file, so a change anywhere invalidates it.
+ * 56 B; App.perm_ask carries one by value.
+ */
+typedef struct {
+    unsigned long long dev, ino, size;
+    long long mtime_s, mtime_ns;
+    unsigned long long hash;
+    unsigned mode;
+    int valid;
+} ToolIdentity;
+
+/*
+ * One prepared mutation. The layer fills dfd/base from the resolver before
+ * calling prep; prep owns priv and frees it in free_priv. preview is the only
+ * thing the card shows; ident is what approval binds to.
+ */
+typedef struct {
+    char preview[TOOL_ASK_TEXT_MAX];
+    size_t preview_len;
+    ToolIdentity ident;
+    int dfd;
+    const char *base; /* points into the caller's resolved path */
+    void *priv;
+    void (*free_priv)(void *);
+} ToolPrep;
 
 /*
  * Input to one permission decision. The owner fills action/tool/path/command/
@@ -45,6 +77,7 @@ typedef struct {
     const char *command;
     const char *preview;
     size_t preview_len;
+    const ToolIdentity *ident;
     /*
      * TODO(mem): every caller reserves this 4 KiB (tool_execute 4,480 B,
      * ctx_allow 4,192 B frames) although only an ASK or inside-check fills
@@ -66,6 +99,7 @@ static inline void perm_req_init(PermReq *r, enum ToolAction action,
     r->command = NULL;
     r->preview = NULL;
     r->preview_len = 0;
+    r->ident = NULL;
     r->resolved[0] = '\0';
 }
 
@@ -82,12 +116,14 @@ typedef struct {
     char text[512];
     size_t text_len;
     int text_truncated;
+    ToolIdentity ident;
 } ToolAsk;
 
 typedef struct {
     const char *cwd;
     unsigned perms;
     int call_approved; /* set only while re-running the approved call */
+    const ToolIdentity *approved; /* the identity carried by that approval */
 } PermPolicy;
 
 enum {
@@ -101,6 +137,17 @@ enum {
 
 /* 1 when resolved is a real path, 0 when the leaf or a parent does not exist. */
 int perm_resolve_path(const char *cwd, const char *path, char *out, size_t cap);
+
+/*
+ * Mutation resolver: lexically normalise, walk every component with
+ * O_NOFOLLOW|O_DIRECTORY, and return the parent dirfd + basename. Refuses a
+ * symlink component. The caller owns the fd. 0 on success, -1 with errno.
+ */
+int perm_open_target(const char *cwd, const char *path, char *resolved,
+                     size_t cap, int *dfd_out, const char **base_out);
+
+/* 1 when the resolved path is on the unwaivable protected list. */
+int perm_protected(const char *resolved);
 
 /* Prefix compare with a '/' or NUL boundary; resolved must be canonical. */
 int perm_path_within_cwd(const char *cwd, const char *resolved);
