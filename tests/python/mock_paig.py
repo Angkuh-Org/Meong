@@ -33,6 +33,10 @@ MODELS = [
     "mock/tools-think",
     "mock/tools-think-slow",
     "mock/edit",
+    "mock/write-create",
+    "mock/write-overwrite",
+    "mock/write-existing",
+    "mock/write-long",
 ]
 FLAKY = {}
 FLAKY_LOCK = threading.Lock()
@@ -115,6 +119,10 @@ CAPABILITIES = {
 }
 CAPABILITIES["mock/tools-session"] = dict(CAPABILITIES["mock/tools-multi"])
 CAPABILITIES["mock/edit"] = dict(CAPABILITIES["mock/tools-multi"])
+CAPABILITIES["mock/write-create"] = dict(CAPABILITIES["mock/tools-multi"])
+CAPABILITIES["mock/write-overwrite"] = dict(CAPABILITIES["mock/tools-multi"])
+CAPABILITIES["mock/write-existing"] = dict(CAPABILITIES["mock/tools-multi"])
+CAPABILITIES["mock/write-long"] = dict(CAPABILITIES["mock/tools-multi"])
 CHUNKS = [3, 11, 1, 7, 19, 5, 13, 2]
 TOOL_CALL_ID = "call_1"
 TOOL_NAME = "read_file"
@@ -128,10 +136,32 @@ EDIT_ARGS = os.environ.get(
     "MOCK_EDIT_ARGS",
     '{"path":"/tmp/meong-card.txt","old_string":"beta","new_string":"BETA"}',
 )
+WRITE_CREATE_ARGS = os.environ.get(
+    "MOCK_WRITE_CREATE_ARGS",
+    '{"path":"/tmp/meong-write-new.txt","content":"created\\n"}',
+)
+WRITE_OVERWRITE_ARGS = os.environ.get(
+    "MOCK_WRITE_OVERWRITE_ARGS",
+    '{"path":"/tmp/meong-write-exists.txt","content":"new\\n",'
+    '"overwrite":true}',
+)
+WRITE_EXISTING_ARGS = os.environ.get(
+    "MOCK_WRITE_EXISTING_ARGS",
+    '{"path":"/tmp/meong-write-exists.txt","content":"clobber\\n"}',
+)
+WRITE_LONG_ARGS = os.environ.get(
+    "MOCK_WRITE_LONG_ARGS",
+    '{"path":"/tmp/meong-write-long.txt","content":'
+    '"one\\ntwo\\nthree\\nfour\\nfive\\nsix\\nseven\\n"}',
+)
 TOOL_CONTRACT = {
     "mock/tools": [(TOOL_CALL_ID, TOOL_NAME)],
     "mock/tools-frag": [(TOOL_CALL_ID, TOOL_NAME)],
     "mock/edit": [(TOOL_CALL_ID, "edit")],
+    "mock/write-create": [(TOOL_CALL_ID, "write")],
+    "mock/write-overwrite": [(TOOL_CALL_ID, "write")],
+    "mock/write-existing": [(TOOL_CALL_ID, "write")],
+    "mock/write-long": [(TOOL_CALL_ID, "write")],
     "mock/tools-multi": [
         (TOOL_CALL_ID, TOOL_NAME),
         (TOOL_DIR_ID, TOOL_DIR_NAME),
@@ -541,6 +571,41 @@ class Handler(BaseHTTPRequestHandler):
                                         "function": {
                                             "name": "edit",
                                             "arguments": EDIT_ARGS,
+                                        },
+                                    }
+                                ]
+                            },
+                        )
+                    ),
+                    sse_frame(chunk_obj(model, {}, "tool_calls")),
+                    sse_frame(usage_obj(model)),
+                    b"data: [DONE]\n\n",
+                ]
+            elif model in (
+                "mock/write-create",
+                "mock/write-overwrite",
+                "mock/write-existing",
+                "mock/write-long",
+            ):
+                write_args = {
+                    "mock/write-create": WRITE_CREATE_ARGS,
+                    "mock/write-overwrite": WRITE_OVERWRITE_ARGS,
+                    "mock/write-existing": WRITE_EXISTING_ARGS,
+                    "mock/write-long": WRITE_LONG_ARGS,
+                }[model]
+                frames = [
+                    sse_frame(
+                        chunk_obj(
+                            model,
+                            {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": TOOL_CALL_ID,
+                                        "type": "function",
+                                        "function": {
+                                            "name": "write",
+                                            "arguments": write_args,
                                         },
                                     }
                                 ]

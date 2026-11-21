@@ -35,19 +35,33 @@ enum ToolAskKind {
     TOOL_ASK_MUTATE,
 };
 
+enum ToolIdentityKind {
+    /* 0 keeps edit's designated initialisers and the shipped tuple compare. */
+    TOOL_IDENT_EXISTING = 0,
+    TOOL_IDENT_CREATE = 1,
+};
+
 /*
  * What the human approved, not what the model asked for. Every field is
  * captured from the same fd that was read for the preview; hash is keyed
  * SipHash-2-4 over the whole file, so a change anywhere invalidates it.
  * 56 B; App.perm_ask carries one by value.
+ *
+ * CREATE uses dev/ino of the parent, size = payload length, mtime = 0, mode =
+ * the final mode, and hash over resolved || '\0' || content. EXISTING keeps
+ * the file tuple and the old-bytes hash. valid and kind are packed bytes so
+ * the structure does not grow.
  */
 typedef struct {
     unsigned long long dev, ino, size;
     long long mtime_s, mtime_ns;
     unsigned long long hash;
     unsigned mode;
-    int valid;
+    unsigned char valid;
+    unsigned char kind;
 } ToolIdentity;
+
+_Static_assert(sizeof(ToolIdentity) == 56, "ToolIdentity must stay 56 bytes");
 
 /*
  * One prepared mutation. The layer fills dfd/base from the resolver before

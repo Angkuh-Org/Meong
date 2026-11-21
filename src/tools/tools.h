@@ -46,6 +46,18 @@ typedef int (*ToolPrepFn)(const char *cwd, const char *resolved,
 const char *tools_json(void);
 
 /*
+ * Decode one required string argument, reject an embedded NUL, and prefix the
+ * error with the tool name. The caller owns the returned bytes.
+ */
+char *tool_arg_string(const JDoc *d, int root, const char *key,
+                      const char *tool, size_t *len, char *err,
+                      size_t err_cap);
+
+/* Short display path: relative inside cwd, ~ under HOME, else absolute. */
+void tool_short_path(const char *path, const char *cwd, char *out,
+                     size_t cap);
+
+/*
  * Execute one tool call. The class comes from the registration table, not
  * from the caller. On TOOL_NEED_PERM, ask receives the operation record and
  * nothing is executed. On TOOL_ERR, err receives a model-facing message.
