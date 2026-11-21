@@ -33,6 +33,7 @@
  * the compact height. */
 #define PERM_CARD_H 8
 #define PERM_CARD_MIN_H 7
+#define PERM_CARD_MUTATE_H 9
 static const char *spin_utf8[] = {"▖", "▘", "▝", "▗"};
 static const char *spin_ascii[] = {"|", "/", "-", "\\"};
 
@@ -490,8 +491,41 @@ static int status_rows(const App *a) {
     return n;
 }
 
+static int ask_lines(const ToolAsk *ask) {
+    int n = 1;
+    size_t len = ask->text_len;
+    if (len > sizeof ask->text - 1) {
+        len = sizeof ask->text - 1;
+    }
+    for (size_t i = 0; i < len; i++) {
+        if (ask->text[i] == '\n') {
+            n++;
+        }
+    }
+    return n;
+}
+
+static int perm_card_h(const App *a, int rows) {
+    if (rows < 11) {
+        return PERM_CARD_MIN_H;
+    }
+    if (a->tool_pending && a->perm_ask.action == TOOL_ACT_MUTATE &&
+        a->perm_ask.text[0]) {
+        int h = ask_lines(&a->perm_ask) + 6;
+        int maxh = rows - 5;
+        if (maxh > 15) {
+            maxh = 15;
+        }
+        if (h > maxh) {
+            h = maxh;
+        }
+        return h < PERM_CARD_H ? PERM_CARD_H : h;
+    }
+    return PERM_CARD_H;
+}
+
 int chat_height(const App *a, int rows) {
-    int card_h = rows < 11 ? PERM_CARD_MIN_H : PERM_CARD_H;
+    int card_h = perm_card_h(a, rows);
     int extra = a->tool_pending ? card_h - 3 : 0;
     int h = rows - 6 - status_rows(a) - extra;
     return h > 1 ? h : 1;
@@ -617,11 +651,18 @@ static __attribute__((noinline, cold)) void perm_draw(App *a, int rows,
         return;
     }
     int px = 1;
-    int card_h = rows < 11 ? PERM_CARD_MIN_H : PERM_CARD_H;
+    int card_h = perm_card_h(a, rows);
     int pad = card_h - PERM_CARD_MIN_H;
     int py = rows - 3 - card_h + 1;
     if (py < 1) {
         py = 1;
+    }
+    int mutate = a->perm_ask.action == TOOL_ACT_MUTATE;
+    int cy = mutate ? py : py + pad;
+    int y = cy + ((mutate && card_h >= PERM_CARD_H) ? 2 : 1);
+    int maxrows = card_h - 6;
+    if (maxrows < 1) {
+        maxrows = 1;
     }
     const ToolCall *call = perm_pending_call(a);
     const char *name = call && call->name && *call->name
@@ -666,34 +707,73 @@ static __attribute__((noinline, cold)) void perm_draw(App *a, int rows,
 
     int x0 = px + 2;
     int maxx = px + w - 2;
-    int cy = py + pad;
-    int y = cy + 1;
     wattrset(stdscr, pair_attr(a, P_PANEL_ACCENT) | A_BOLD);
     mvaddstr(y, x0, sym_tool_ask(a));
     mvaddnstr(y, x0 + 2, name, maxx - (x0 + 2) + 1);
     int textw = maxx - (x0 + 2) + 1;
-    size_t args_cap = sizeof args;
-    if (args_cap > (size_t)textw + 4) {
-        args_cap = (size_t)textw + 4;
-    }
-    int args_len;
-    if (a->perm_ask.kind != TOOL_ASK_PATH && a->perm_ask.text[0]) {
-        size_t n = a->perm_ask.text_len;
-        if (n >= args_cap) {
-            n = args_cap - 1;
+    if (mutate && a->perm_ask.kind == TOOL_ASK_MUTATE &&
+        a->perm_ask.text[0]) {
+        size_t len = a->perm_ask.text_len;
+        if (len > sizeof a->perm_ask.text - 1) {
+            len = sizeof a->perm_ask.text - 1;
         }
-        memcpy(args, a->perm_ask.text, n);
-        args[n] = '\0';
-        if (a->perm_ask.text_truncated && n + 3 < args_cap) {
-            memcpy(args + n, "...", 4);
-            n += 3;
+        int plines = 1;
+        for (size_t i = 0; i < len; i++) {
+            if (a->perm_ask.text[i] == '\n') {
+                plines++;
+            }
         }
-        args_len = (int)n;
+        int hidden = plines > maxrows;
+        int draw = maxrows;
+        if (hidden && maxrows >= 2) {
+            draw = maxrows - 1;
+        }
+        size_t start = 0;
+        for (int r = 0; r < draw && start < len; r++) {
+            size_t end = start;
+            while (end < len && a->perm_ask.text[end] != '\n') {
+                end++;
+            }
+            attr_t at = pair_attr(a, P_PANEL_DIM);
+            if (a->perm_ask.text[start] == '+') {
+                at = pair_attr(a, P_PANEL_ACCENT);
+            } else if (a->perm_ask.text[start] == '-') {
+                at = pair_attr(a, P_PANEL_WARN);
+            }
+            draw_slice(a, y + 1 + r, x0 + 2, a->perm_ask.text + start, 0,
+                       end - start, maxx, at, 0, 0, 0, NULL);
+            start = end < len ? end + 1 : end;
+        }
+        if (hidden && maxrows >= 2) {
+            char more[64];
+            snprintf(more, sizeof more, "... (%d more lines)", plines - draw);
+            draw_slice(a, y + 1 + draw, x0 + 2, more, 0, strlen(more), maxx,
+                       pair_attr(a, P_PANEL_DIM), 0, 0, 0, NULL);
+        }
     } else {
-        args_len = (int)perm_args_text(a, call, args, args_cap);
+        size_t args_cap = sizeof args;
+        if (args_cap > (size_t)textw + 4) {
+            args_cap = (size_t)textw + 4;
+        }
+        int args_len;
+        if (a->perm_ask.kind != TOOL_ASK_PATH && a->perm_ask.text[0]) {
+            size_t n = a->perm_ask.text_len;
+            if (n >= args_cap) {
+                n = args_cap - 1;
+            }
+            memcpy(args, a->perm_ask.text, n);
+            args[n] = '\0';
+            if (a->perm_ask.text_truncated && n + 3 < args_cap) {
+                memcpy(args + n, "...", 4);
+                n += 3;
+            }
+            args_len = (int)n;
+        } else {
+            args_len = (int)perm_args_text(a, call, args, args_cap);
+        }
+        draw_slice(a, y + 1, x0 + 2, args, 0, args_len, maxx,
+                   pair_attr(a, P_PANEL_DIM), 0, 0, 0, NULL);
     }
-    draw_slice(a, y + 1, x0 + 2, args, 0, args_len, maxx,
-               pair_attr(a, P_PANEL_DIM), 0, 0, 0, NULL);
 
     int avail = maxx - x0 + 1;
     int nbtn = a->perm_ask.action == TOOL_ACT_READ ? 3 : 2;
@@ -703,7 +783,7 @@ static __attribute__((noinline, cold)) void perm_draw(App *a, int rows,
         labels[2] = "Always allow this session";
         gap = 2;
     }
-    int by = cy + 4;
+    int by = mutate ? py + 3 + maxrows : cy + 4;
     int bx = x0;
     a->perm_btn_y = by;
     for (int i = 0; i < nbtn; i++) {
@@ -743,7 +823,7 @@ static __attribute__((noinline, cold)) void perm_draw(App *a, int rows,
         }
     }
     wattrset(stdscr, pair_attr(a, P_PANEL_DIM));
-    mvaddnstr(cy + 5, x0, hint, avail + 8);
+    mvaddnstr(by + 1, x0, hint, avail + 8);
     a->cursor_on = 0;
 }
 

@@ -554,14 +554,17 @@ static int run_tool(App *a, const ToolCall *call, Buf *bounded, char *err,
     ToolAsk ask;
     PermPolicy pol = {.cwd = a->cwd,
                       .perms = a->base_perms | a->session_perms,
-                      .call_approved = a->tool_call_approved};
+                      .call_approved = a->tool_call_approved,
+                      .approved = a->tool_call_approved
+                                      ? &a->perm_ask.ident
+                                      : NULL};
     if (err && err_cap) {
         err[0] = '\0';
     }
     *bytes = 0;
     *lines = 0;
-    int r = tool_execute(call->name, call->args, call->args_len, &pol,
-                         tool_authorize, &ask, &out, err, err_cap);
+    int r = tool_execute(call->name, call->args, call->args_len, a->cwd,
+                         &pol, tool_authorize, &ask, &out, err, err_cap);
     *sec = now_sec() - t0;
     if (r == TOOL_NEED_PERM) {
         a->perm_ask = ask;

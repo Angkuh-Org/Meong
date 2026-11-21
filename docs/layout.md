@@ -95,16 +95,26 @@ User contract: [`tools.md`](tools.md).
 `tools.c` owns the static, byte-stable OpenAI tool array and dispatch, plus
 `tool_call_summary()`, the display-only shortening of a call's arguments;
 `exec.c` implements the three read-only handlers (`read_file` with a metadata
-header and line range, `search` with glob/context, `list_dir` with type/size).
-Every tool is registered with an action class in `tools.c`; `tool_execute()`
-runs the pre-dispatch gate before the handler, and `perm.c` holds the pure
-policy. A read path inside the cwd runs, an outside path asks the TUI;
-`mutate`/`exec` always ask unless the matching `--allow-writes`/`--allow-exec`
-is set. `--yolo` covers outside-cwd reads only. `search` keeps a per-file
+header and line range, `search` with glob/context, `list_dir` with type/size);
+`edit.c` implements the one mutating handler: exact-unique match, bounded
+preview, full-file identity, then atomic temp+fsync+rename. Every tool is
+registered with an action class in `tools.c`; `tool_execute()` resolves the
+top-level path, denies a protected path, runs the prepare hook, then calls the
+gate before the handler. `perm.c` holds the pure policy, the protected list,
+the dirfd mutation resolver, and the identity comparison. A read path inside
+the cwd runs, an outside path asks the TUI; `mutate`/`exec` always ask unless
+the matching `--allow-writes`/`--allow-exec` is set. `--yolo` covers
+outside-cwd reads only and never a protected path. `search` keeps a per-file
 check so a multi-path call cannot bypass the class gate. Results larger than
 16 KiB keep a head/tail inline and spill the full text under the cache
 directory. `chat.c` runs at most eight tool rounds and fills an
 `[interrupted by user]` result into every unanswered call position on cancel.
+
+The permission card replaces the composer: 7 rows below 11 terminal rows, 8
+rows at 11–13 (a read stays at 8). A mutate card grows with its preview lines
+(up to 15 rows) and shows up to 3+3 changed lines; short terminals show the
+`path:line` header plus fewer lines. `chat_height()` and `perm_draw()` share
+`perm_card_h()`, so the reserved rows and the drawn card cannot disagree.
 
 ## `src/cli/`
 

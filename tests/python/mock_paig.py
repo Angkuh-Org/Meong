@@ -32,6 +32,7 @@ MODELS = [
     "mock/tools-session",
     "mock/tools-think",
     "mock/tools-think-slow",
+    "mock/edit",
 ]
 FLAKY = {}
 FLAKY_LOCK = threading.Lock()
@@ -113,6 +114,7 @@ CAPABILITIES = {
     },
 }
 CAPABILITIES["mock/tools-session"] = dict(CAPABILITIES["mock/tools-multi"])
+CAPABILITIES["mock/edit"] = dict(CAPABILITIES["mock/tools-multi"])
 CHUNKS = [3, 11, 1, 7, 19, 5, 13, 2]
 TOOL_CALL_ID = "call_1"
 TOOL_NAME = "read_file"
@@ -122,9 +124,14 @@ TOOL_DIR_ID = "call_2"
 TOOL_DIR_NAME = "list_dir"
 TOOL_DIR_ARGS = '{"path":"."}'
 TOOL_OTHER_ARGS = '{"path":"/proj/other.txt"}'
+EDIT_ARGS = os.environ.get(
+    "MOCK_EDIT_ARGS",
+    '{"path":"/tmp/meong-card.txt","old_string":"beta","new_string":"BETA"}',
+)
 TOOL_CONTRACT = {
     "mock/tools": [(TOOL_CALL_ID, TOOL_NAME)],
     "mock/tools-frag": [(TOOL_CALL_ID, TOOL_NAME)],
+    "mock/edit": [(TOOL_CALL_ID, "edit")],
     "mock/tools-multi": [
         (TOOL_CALL_ID, TOOL_NAME),
         (TOOL_DIR_ID, TOOL_DIR_NAME),
@@ -512,6 +519,30 @@ class Handler(BaseHTTPRequestHandler):
                                             "arguments": TOOL_OTHER_ARGS,
                                         },
                                     },
+                                ]
+                            },
+                        )
+                    ),
+                    sse_frame(chunk_obj(model, {}, "tool_calls")),
+                    sse_frame(usage_obj(model)),
+                    b"data: [DONE]\n\n",
+                ]
+            elif model == "mock/edit":
+                frames = [
+                    sse_frame(
+                        chunk_obj(
+                            model,
+                            {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": TOOL_CALL_ID,
+                                        "type": "function",
+                                        "function": {
+                                            "name": "edit",
+                                            "arguments": EDIT_ARGS,
+                                        },
+                                    }
                                 ]
                             },
                         )

@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/types.h>
 #include <wchar.h>
 
 typedef struct {
@@ -39,6 +40,20 @@ void fmt_count(long long v, char *out, size_t cap);
 
 char *read_file(const char *path, size_t *len_out);
 int write_file_atomic(const char *path, const char *data, size_t len);
+
+/*
+ * Replace an existing file with `data` atomically: same-directory hidden temp,
+ * O_EXCL|O_NOFOLLOW, chown-then-chmod, write, fsync, renameat, best-effort
+ * directory fsync. Refuses a non-regular leaf, a hardlink and a foreign owner.
+ * No directory creation. The `_at` form takes the already-walked parent fd.
+ */
+int write_file_replace(const char *path, const char *data, size_t len);
+int write_file_replace_at(int dfd, const char *base, const char *data,
+                          size_t len, mode_t mode, uid_t uid, gid_t gid);
+
+/* Keyed SipHash-2-4 over the whole buffer; used for approval identity. */
+unsigned long long meong_siphash24(const void *data, size_t len);
+
 int mkdir_p(const char *path);
 
 #endif

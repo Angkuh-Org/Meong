@@ -98,6 +98,8 @@ static enum PermDecision auth_policy(void *ud, PermReq *req) {
     return perm_decide((const PermPolicy *)ud, req);
 }
 
+static const char *test_cwd = "/";
+
 static int run(const char *name, const char *args, ToolAuthorizeFn auth,
                void *ud, Buf *out, ToolAsk *ask, char *err,
                size_t err_cap) {
@@ -106,8 +108,8 @@ static int run(const char *name, const char *args, ToolAuthorizeFn auth,
     if (err && err_cap) {
         err[0] = '\0';
     }
-    return tool_execute(name, args, args ? strlen(args) : 0, ud, auth, ask,
-                        out, err, err_cap);
+    return tool_execute(name, args, args ? strlen(args) : 0, test_cwd, ud,
+                        auth, ask, out, err, err_cap);
 }
 
 /* ---- catalog ------------------------------------------------------------ */
@@ -133,8 +135,8 @@ static void test_tools_json(void) {
         return;
     }
     int root = jdoc_root(&d);
-    ok(jtype(&d, root) == J_ARRAY && jlen(&d, root) == 3,
-       "tools_json is an array of three tools");
+    ok(jtype(&d, root) == J_ARRAY && jlen(&d, root) == 4,
+       "tools_json is an array of four tools");
 
     static const char *want[] = {"read_file", "search", "list_dir"};
     for (int i = 0; i < 3; i++) {
@@ -212,6 +214,37 @@ static void test_tools_json(void) {
        "search offers string glob and integer context_lines");
     free(glv);
     free(clv);
+
+    /* edit: path/old_string/new_string required, replace_all optional bool. */
+    fn = jget(&d, jgeti(&d, root, 3), "function");
+    int en = jget(&d, fn, "name");
+    char *ev = en >= 0 ? jstring_alloc(&d, en) : NULL;
+    ok(ev && strcmp(ev, "edit") == 0, "tool 3 is edit");
+    free(ev);
+    int edesc = jget(&d, fn, "description");
+    char *edv = edesc >= 0 ? jstring_alloc(&d, edesc) : NULL;
+    ok(edv && strstr(edv, "byte-for-byte") && strstr(edv, "exactly once"),
+       "edit documents the exact-unique contract");
+    free(edv);
+    params = jget(&d, fn, "parameters");
+    props = jget(&d, params, "properties");
+    req = jget(&d, params, "required");
+    ok(jlen(&d, req) == 3, "edit requires three arguments");
+    char *e0 = jlen(&d, req) == 3 ? jstring_alloc(&d, jgeti(&d, req, 0)) : NULL;
+    char *e1 = jlen(&d, req) == 3 ? jstring_alloc(&d, jgeti(&d, req, 1)) : NULL;
+    char *e2 = jlen(&d, req) == 3 ? jstring_alloc(&d, jgeti(&d, req, 2)) : NULL;
+    ok(e0 && e1 && e2 && strcmp(e0, "path") == 0 &&
+           strcmp(e1, "old_string") == 0 &&
+           strcmp(e2, "new_string") == 0,
+       "edit requires path, old_string and new_string");
+    free(e0);
+    free(e1);
+    free(e2);
+    int ra = jget(&d, props, "replace_all");
+    char *rav = ra >= 0 ? jstring_alloc(&d, jget(&d, ra, "type")) : NULL;
+    ok(rav && strcmp(rav, "boolean") == 0,
+       "edit offers boolean replace_all");
+    free(rav);
     jdoc_free(&d);
 }
 
@@ -833,6 +866,11 @@ static void test_summary(void) {
                   "summary flattens the search pattern and glob");
     check_summary("list_dir", "{\"path\":\"/home/u/proj\"}", cwd, ".",
                   "summary prints the cwd as a dot");
+    check_summary("edit",
+                  "{\"path\":\"/home/u/proj/src/a.c\",\"old_string\":\"x\","
+                  "\"new_string\":\"y\"}",
+                  cwd, "src/a.c",
+                  "summary shows only the edit path, never old_string");
     const char *home = getenv("HOME");
     if (home && *home) {
         char args[512];
@@ -854,6 +892,7 @@ int main(void) {
         perror("mkdtemp");
         return 2;
     }
+    test_cwd = root;
     char *d1 = join(root, "read");
     char *d2 = join(root, "list");
     char *d3 = join(root, "search");
