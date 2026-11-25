@@ -704,11 +704,10 @@ static int replace_at_impl(int dfd, const char *base, const char *data,
     char tmp[NAME_MAX + 8];
     int fd = -1;
     /*
-     * TODO(fix): keyed == 0 is edit's shipped path: `.<base>.mng` plus the
-     * 60 s takeover below. A user file named `.foo.mng` can be unlinked when
-     * `foo` is edited. write uses keyed == 1; fix edit by using the keyed
-     * name (or dropping the takeover) and add a test that creates `.foo.mng`,
-     * edits `foo`, and asserts the user file survives.
+     * keyed == 0 is the legacy `.<base>.mng` path with the 60 s takeover;
+     * no tool calls it now (edit and write both use keyed == 1). It remains
+     * for write_file_replace()/write_replace_test. The takeover can unlink a
+     * user file named `.<base>.mng`; do not route a tool through it.
      */
     int attempts = keyed ? 8 : 1;
     for (int attempt = 0; attempt < attempts; attempt++) {

@@ -115,9 +115,12 @@ directory. `chat.c` runs at most eight tool rounds and fills an
 
 The permission card replaces the composer: 7 rows below 11 terminal rows, 8
 rows at 11–13 (a read stays at 8). A mutate card grows with its preview lines
-(up to 15 rows): `edit` shows up to 3+3 changed lines; `write` shows the first
-three and last content line with a `... K lines not shown` marker. Short
-terminals show the header plus fewer lines. `chat_height()` and `perm_draw()`
+(up to 15 rows): `edit` shows up to 3+3 changed lines; its header carries the
+old/new `old_string`/`new_string` byte counts, a line that fills the 191-byte
+preview buffer adds one `... (line truncated)` row, and tabs render as four
+spaces; `write` shows the first three and last content line with a
+`... K lines not shown` marker. Short terminals show the header plus fewer
+lines. `chat_height()` and `perm_draw()`
 share `perm_card_h()`, so the reserved rows and the drawn card cannot disagree.
 The card keys the write preview off the registered `ask.tool` and the preview's
 first word; no new ask kind or `ToolAsk` field.

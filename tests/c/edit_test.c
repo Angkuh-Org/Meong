@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 static int fails;
@@ -128,6 +129,83 @@ static void test_unique(const char *dir) {
     buf_free(&out);
 }
 
+static void test_overlap(const char *dir) {
+    char path[4096];
+    snprintf(path, sizeof path, "%s/overlap.txt", dir);
+    put(path, "aaa\n", 4, 0644);
+    Buf out;
+    ToolAsk ask;
+    char err[512];
+    int rc = run_edit(path, "aa", "X", 0, auth_allow, NULL, &out, &ask, err,
+                      sizeof err);
+    ok(rc == TOOL_OK, "a self-overlapping needle is one match");
+    char buf[16];
+    ok(slurp(path, buf, sizeof buf) == 3 && strcmp(buf, "Xa\n") == 0,
+       "the overlapping edit replaces only the first match");
+    buf_free(&out);
+}
+
+static int has_keyed_temp(const char *dir) {
+    DIR *d = opendir(dir);
+    if (!d) {
+        return 1;
+    }
+    int found = 0;
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+        if (strncmp(e->d_name, ".mng.", 5) == 0) {
+            found = 1;
+            break;
+        }
+    }
+    closedir(d);
+    return found;
+}
+
+static void test_mng_takeover(const char *dir) {
+    char path[4096];
+    char canary[4096];
+    snprintf(path, sizeof path, "%s/foo", dir);
+    snprintf(canary, sizeof canary, "%s/.foo.mng", dir);
+    put(path, "old\n", 4, 0644);
+    put(canary, "USER CANARY\n", 12, 0644);
+    struct timespec ts[2];
+    ts[0].tv_sec = time(NULL) - 120;
+    ts[0].tv_nsec = 0;
+    ts[1] = ts[0];
+    ok(utimensat(AT_FDCWD, canary, ts, 0) == 0,
+       "the user .foo.mng mtime is old");
+
+    Buf out;
+    ToolAsk ask;
+    char err[512];
+    int rc = run_edit(path, "old", "new", 0, auth_allow, NULL, &out, &ask,
+                      err, sizeof err);
+    ok(rc == TOOL_OK, "edit succeeds with a user .foo.mng present");
+    char buf[64];
+    ok(slurp(path, buf, sizeof buf) == 4 && strcmp(buf, "new\n") == 0,
+       "the target is edited");
+    ok(slurp(canary, buf, sizeof buf) == 12 &&
+           strcmp(buf, "USER CANARY\n") == 0,
+       "the user .foo.mng survives");
+    ok(!has_keyed_temp(dir), "no keyed temp is left after the takeover test");
+    buf_free(&out);
+
+    char name[252];
+    memset(name, 'a', 250);
+    name[250] = '\0';
+    char longpath[4096];
+    snprintf(longpath, sizeof longpath, "%s/%s", dir, name);
+    put(longpath, "old\n", 4, 0644);
+    rc = run_edit(longpath, "old", "new", 0, auth_allow, NULL, &out, &ask,
+                  err, sizeof err);
+    ok(rc == TOOL_OK, "a 250-byte basename is editable");
+    ok(slurp(longpath, buf, sizeof buf) == 4 && strcmp(buf, "new\n") == 0,
+       "the 250-byte basename gets the new bytes");
+    ok(!has_keyed_temp(dir), "no keyed temp is left after the long name");
+    buf_free(&out);
+}
+
 static void test_no_card(const char *dir) {
     char path[4096];
     snprintf(path, sizeof path, "%s/dup.txt", dir);
@@ -212,6 +290,8 @@ static void test_multiline(const char *dir) {
                   &out, &ask, err, sizeof err);
     ok(rc == TOOL_OK && out.p && strstr(out.p, "+2 -2") != NULL,
        "the multi-line result reports +2 -2");
+    ok(out.p && strstr(out.p, ":2-3") != NULL,
+       "the multi-line result reports the exact 2-3 line range");
     ok(slurp(path, buf, sizeof buf) == 23 &&
            strcmp(buf, "alpha\nBETA\nGAMMA\ndelta\n") == 0,
        "the multi-line edit writes the exact new block");
@@ -254,6 +334,70 @@ static void test_truncated_preview(const char *dir) {
     ok(slurp(path, buf, sizeof buf) == (int)(o + 1) &&
            memcmp(buf, content, o + 1) == 0,
        "an over-budget preview writes nothing");
+    buf_free(&out);
+}
+
+static void test_preview_identity(const char *dir) {
+    char line[2049];
+    size_t n = 0;
+    unsigned x = 0x12345678u;
+    for (size_t i = 0; i < 2040; i++) {
+        x = x * 1103515245u + 12345u;
+        line[n++] = (char)('!' + (x >> 16) % 94);
+    }
+    line[n++] = '\t';
+    memcpy(line + n, "\xE2\x82\xAC", 3);
+    n += 3;
+    memcpy(line + n, "\xF0\x9F\x98\x80", 4);
+    n += 4;
+    line[n] = '\0';
+    ok(n == 2048, "the M11 line is 2,048 bytes");
+
+    char content[2064];
+    memcpy(content, line, n);
+    content[n] = '\n';
+    memcpy(content + n + 1, "SENTINEL\n", 9);
+    size_t clen = n + 10;
+    char path[4096];
+    snprintf(path, sizeof path, "%s/long.txt", dir);
+    put(path, content, clen, 0644);
+
+    Buf out;
+    ToolAsk full;
+    char err[512];
+    int rc = run_edit(path, line, "REPLACED", 0, auth_ask, NULL, &out, &full,
+                      err, sizeof err);
+    ok(rc == TOOL_NEED_PERM && full.kind == TOOL_ASK_MUTATE,
+       "the full-line edit asks");
+    ok(strstr(full.text, "2048B -> 8B") != NULL,
+       "the full-line card shows 2,048 old bytes");
+    ok(strstr(full.text, "... (line truncated)") != NULL,
+       "the full-line card marks the clipped line");
+    buf_free(&out);
+
+    char prefix[191];
+    memcpy(prefix, line, 190);
+    prefix[190] = '\0';
+    ToolAsk part;
+    rc = run_edit(path, prefix, "REPLACED", 0, auth_ask, NULL, &out, &part,
+                  err, sizeof err);
+    ok(rc == TOOL_NEED_PERM && part.kind == TOOL_ASK_MUTATE,
+       "the prefix edit asks");
+    ok(strstr(part.text, "190B -> 8B") != NULL,
+       "the prefix card shows 190 old bytes");
+    ok(strcmp(full.text, part.text) != 0,
+       "the full-line and prefix cards differ");
+    buf_free(&out);
+
+    snprintf(path, sizeof path, "%s/tab.txt", dir);
+    put(path, "\tindent\n", 8, 0644);
+    ToolAsk tab;
+    rc = run_edit(path, "\tindent", "INDENT", 0, auth_ask, NULL, &out, &tab,
+                  err, sizeof err);
+    ok(rc == TOOL_NEED_PERM, "the tab edit asks");
+    ok(strstr(tab.text, "-    indent") != NULL,
+       "a tab renders as four spaces");
+    ok(strstr(tab.text, "-\tindent") == NULL, "a tab is not dropped");
     buf_free(&out);
 }
 
@@ -448,10 +592,13 @@ int main(void) {
     }
     cwd = root;
     test_unique(root);
+    test_overlap(root);
+    test_mng_takeover(root);
     test_no_card(root);
     test_replace_all(root);
     test_multiline(root);
     test_truncated_preview(root);
+    test_preview_identity(root);
     test_delete(root);
     test_crlf(root);
     test_binary(root);

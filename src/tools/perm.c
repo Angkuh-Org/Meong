@@ -390,6 +390,10 @@ enum PermDecision perm_decide(const PermPolicy *p, PermReq *r) {
         return PERM_DENY_PROTECTED;
     }
 
+    if (r->action == TOOL_ACT_MUTATE && (p->perms & PERM_NO_MUTATE)) {
+        return PERM_DENY_MUTATE;
+    }
+
     if (p->call_approved) {
         if (r->action == TOOL_ACT_MUTATE) {
             /* Fail closed: a mutation approval without a ticket is not an

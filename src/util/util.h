@@ -71,9 +71,9 @@ int write_file_create_at(int dfd, const char *base, const char *data,
                          size_t len, mode_t mode);
 
 /*
- * Replace an existing file with a keyed, non-embedding temp name. Kept apart
- * from write_file_replace_at so edit's shipped temp name stays byte-for-byte
- * compatible; write uses this variant.
+ * Replace an existing file with a keyed, non-embedding temp name. edit and
+ * write use this variant; write_file_replace_at remains the legacy path for
+ * write_file_replace()/tests.
  */
 int write_file_replace_at_keyed(int dfd, const char *base, const char *data,
                                 size_t len, mode_t mode, uid_t uid, gid_t gid);

@@ -660,6 +660,9 @@ static int tui_main(const Options *o) {
     if (o->allow_exec) {
         a.base_perms |= PERM_ALLOW_EXEC;
     }
+    if (o->no_mutate || env_true("MEONG_NO_MUTATE")) {
+        a.base_perms |= PERM_NO_MUTATE;
+    }
     a.session_perms = 0;
     a.tool_call_approved = 0;
     a.perm_sel = 1;

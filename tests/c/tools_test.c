@@ -680,6 +680,27 @@ static void test_permissions(const char *dir) {
        "authorize receives the tool name and read class");
     buf_free(&out);
 
+    /* The kill switch denies through the real dispatcher, before a card. */
+    char *blocked = join(dir, "blocked.txt");
+    char wargs[2048];
+    snprintf(wargs, sizeof wargs,
+             "{\"path\":\"%s\",\"content\":\"x\\n\"}", blocked);
+    PermPolicy nopol = {.cwd = dir,
+                        .perms = PERM_NO_MUTATE | PERM_ALLOW_WRITES};
+    rc = run("write", wargs, auth_policy, &nopol, &out, &ask, err,
+             sizeof err);
+    ok(rc == TOOL_ERR &&
+           strstr(err, "ERROR: mutation is disabled (MEONG_NO_MUTATE)") !=
+               NULL &&
+           strstr(err, "do not retry: write") != NULL,
+       "no-mutate denies write with the switch-specific error");
+    ok(access(blocked, F_OK) != 0,
+       "no-mutate write creates no target");
+    ok(ask.tool[0] == '\0',
+       "no-mutate writes no permission card");
+    buf_free(&out);
+    free(blocked);
+
     /* A search that needs approval anywhere returns no partial result. */
     char *nested = join(dir, "nested");
     mkdir(nested, 0700);

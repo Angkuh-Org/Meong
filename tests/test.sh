@@ -61,6 +61,7 @@ ok "rulebook: loc-per-file law bites"
 grep -q -- '--yolo' "$TMP/help" \
     && grep -q -- '--allow-writes' "$TMP/help" \
     && grep -q -- '--allow-exec' "$TMP/help" \
+    && grep -q -- '--no-mutate' "$TMP/help" \
     || fail "permission flags missing from --help"
 ok "cli: permission flags are documented"
 
@@ -158,6 +159,28 @@ $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
 ok "tools: edit exact-unique, CRLF, stale and protected"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
+    -o "$TMP/ticket_test" \
+    tests/c/ticket_test.c src/tools/tools.c src/tools/exec.c \
+    src/tools/edit.c src/tools/write.c src/tools/perm.c src/json/json.c \
+    src/util/util.c src/util/renameat2.c \
+    || fail "ticket test did not compile"
+"$TMP/ticket_test" >/dev/null \
+    || fail "second permission pass failed"
+ok "tools: ASK->y ticket rejects stale content"
+
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
+    -o "$TMP/edit_fault_test" \
+    tests/c/edit_fault_test.c src/tools/tools.c src/tools/exec.c \
+    src/tools/edit.c src/tools/write.c src/tools/perm.c src/json/json.c \
+    src/util/util.c src/util/renameat2.c \
+    -Wl,--wrap=openat,--wrap=close,--wrap=write,--wrap=fsync,--wrap=fchmod \
+    -Wl,--wrap=unlinkat,--wrap=renameat \
+    || fail "edit fault test did not compile"
+"$TMP/edit_fault_test" >/dev/null \
+    || fail "edit publish-path fault injection failed"
+ok "tools: edit publish-path fault injection"
+
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/write_test" \
     tests/c/write_test.c src/tools/tools.c src/tools/exec.c \
     src/tools/edit.c src/tools/write.c src/tools/perm.c src/json/json.c \
@@ -179,11 +202,35 @@ $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
 ok "tools: write create/overwrite fault injection"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
+    -o "$TMP/order_test" \
+    tests/c/order_test.c src/util/util.c src/util/renameat2.c \
+    -Wl,--wrap=openat,--wrap=close,--wrap=write,--wrap=fsync \
+    -Wl,--wrap=fchmod,--wrap=renameat,--wrap=meong_renameat2_noreplace \
+    || fail "syscall order test did not compile"
+"$TMP/order_test" >/dev/null \
+    || fail "fsync/rename order failed"
+ok "tools: fsync/rename syscall order"
+
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/perm_test" tests/c/perm_test.c src/tools/perm.c \
     || fail "permission policy test did not compile"
 "$TMP/perm_test" >/dev/null \
     || fail "permission policy matrix failed"
 ok "tools: action-class policy and ask record"
+
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
+    -o "$TMP/prop_harness" \
+    tests/c/prop_harness.c src/tools/tools.c src/tools/exec.c \
+    src/tools/edit.c src/tools/write.c src/tools/perm.c src/json/json.c \
+    src/util/util.c src/util/renameat2.c \
+    || fail "property harness did not compile"
+# Suite smoke; the full audit is MEONG_PROP_EDIT=2000 MEONG_PROP_WRITE=800.
+MEONG_HARNESS="$TMP/prop_harness" \
+MEONG_PROP_EDIT="${MEONG_PROP_EDIT:-300}" \
+MEONG_PROP_WRITE="${MEONG_PROP_WRITE:-120}" \
+    python3 tests/python/prop_edit_write.py >/dev/null \
+    || fail "property/differential edit+write failed"
+ok "tools: property/differential edit+write"
 
 LAYOUT_SRCS=$(find src -name '*.c' ! -path 'src/rules/*' \
     ! -path 'src/main.c' ! -path 'src/ui/view.c' | sort)
@@ -2285,6 +2332,47 @@ PY
     cmp -s "$TMP/write/new.txt" "$TMP/write/expected" \
         || fail "write create y did not write the expected bytes"
     ok "write create card allows and writes the expected bytes"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    TMUX_SESS=""
+
+    rm -f "$TMP/write/new.txt"
+    TMUX_SESS="Meong-no-mutate-$$"
+    tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
+    tmux new-session -d -s "$TMUX_SESS" -x 90 -y 26 -c "$PWD" \
+        "env TERM=xterm-256color LC_ALL=C.UTF-8 LANG=C.UTF-8 \
+         MEONG_CONFIG_DIR='$TMP/config' XDG_CACHE_HOME='$TMP/cache' \
+         MEONG_NO_MUTATE=1 \
+         '$BIN_ABS' --url '$URL' --model mock/write-create \
+         --allow-writes --no-mouse"
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'ask anything'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    tmux send-keys -l -t "$TMUX_SESS" 'go'
+    tmux send-keys -t "$TMUX_SESS" Enter
+    i=0
+    while [ "$i" -lt 200 ]; do
+        if tmux capture-pane -p -t "$TMUX_SESS" 2>/dev/null |
+            grep -Fq 'mutation is disabled'; then
+            break
+        fi
+        i=$((i + 1))
+        sleep 0.05
+    done
+    pane=$(tmux capture-pane -p -t "$TMUX_SESS")
+    printf '%s\n' "$pane" | grep -Fq 'mutation is disabled' \
+        || fail "no-mutate write did not report the switch"
+    if printf '%s\n' "$pane" | grep -Fq '[ Reject ]'; then
+        fail "no-mutate opened a permission card"
+    fi
+    [ ! -e "$TMP/write/new.txt" ] \
+        || fail "no-mutate created the target file"
+    ok "no-mutate outranks --allow-writes and creates no file"
     tmux kill-session -t "$TMUX_SESS" 2>/dev/null || true
     TMUX_SESS=""
 

@@ -89,6 +89,8 @@ preserves the mode and re-checks the file identity. `--allow-writes` is the
 standing opt-out for both mutating tools; it skips the card but still refuses
 protected paths, links, a foreign-owned or setuid/setgid target, a file that
 changed after the ask, and a create that would replace an existing file.
+`MEONG_NO_MUTATE=1` or `--no-mutate` refuses `edit` and `write` for the whole
+run; it outranks `--allow-writes`, a session grant, and a one-call approval.
 `--yolo` covers outside-cwd reads only and no longer reads a protected path
 (`.ssh`, `.git`, `.env`, `.paig`, …). `--allow-exec` is the separate opt-out
 for the future exec class. Permission, protected paths, display details, and
@@ -109,6 +111,7 @@ output bounds: [`tools.md`](tools.md).
 | `MEONG_NO_MOUSE` | disable mouse and touch input |
 | `MEONG_YOLO` | allow reads outside the working directory (not writes/exec) |
 | `MEONG_ALLOW_WRITES` | allow mutating tools without a prompt |
+| `MEONG_NO_MUTATE` | refuse `edit` and `write` for the run; outranks `--allow-writes` |
 | `NO_COLOR` | disable color |
 | `MEONG_WIRE_DEBUG` | dump parsed HTTP/SSE lines to stderr |
 

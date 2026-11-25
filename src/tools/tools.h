@@ -27,8 +27,8 @@ enum {
 
 /*
  * Decide one operation request. The callback fills req->resolved and returns
- * PERM_ALLOW, PERM_DENY or PERM_ASK. The tool layer copies an ASK into the
- * caller's ToolAsk; the callback never owns the record.
+ * a PermDecision; PERM_ASK is copied into the caller's ToolAsk. The callback
+ * never owns the record.
  */
 typedef enum PermDecision (*ToolAuthorizeFn)(void *ud, PermReq *req);
 
