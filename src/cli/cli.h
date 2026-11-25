@@ -18,6 +18,7 @@ typedef struct {
     int yolo;
     int allow_writes;
     int allow_exec;
+    int no_mutate;
     int help;
     int version;
 } Options;

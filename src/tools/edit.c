@@ -55,16 +55,13 @@ static int failf(char *err, size_t cap, const char *fmt, ...) {
 }
 
 /*
- * Preview text only. The shared sanitizer owns the control/ESC/bidi table;
- * edit keeps its original flags so the shipped card bytes do not move.
- *
- * TODO(fix): PV_ELLIPSIS only drops a tab from the card (`\tfoo` -> `foo`),
- * so the human can approve a diff whose indentation looks different. write
- * passes PV_TABS; add it here and a card test that asserts the four-space
- * render. The written bytes are already exact; this is preview-only.
+ * Preview text only. The shared sanitizer owns the control/ESC/bidi table.
+ * PV_TABS keeps indentation visible as four spaces; the written bytes are
+ * exact, this is preview-only. A line that fills the 191-byte buffer is
+ * marked by build_preview() so the human sees that it was clipped.
  */
 static size_t sanitize_line(const char *s, size_t n, char *out, size_t cap) {
-    return preview_sanitize_line(s, n, out, cap, PV_ELLIPSIS, NULL);
+    return preview_sanitize_line(s, n, out, cap, PV_ELLIPSIS | PV_TABS, NULL);
 }
 
 #define PREVIEW_LINE_MAX 256
@@ -168,7 +165,8 @@ static void build_preview(const char *path, const char *old, size_t old_len,
         shown += plen - 96;
     }
     char head[256];
-    int h = snprintf(head, sizeof head, "%s:%zu", shown, *line_start);
+    int h = snprintf(head, sizeof head, "%zuB -> %zuB  %s:%zu", old_len,
+                     new_len, shown, *line_start);
     if (h > 0 && (size_t)h < sizeof head) {
         if (nrep > 1) {
             snprintf(head + h, sizeof head - h, " x%zu", nrep);
@@ -189,6 +187,10 @@ static void build_preview(const char *path, const char *old, size_t old_len,
         size_t z = sanitize_line(ol[prefix + i].p, ol[prefix + i].n, line + 1,
                                  sizeof line - 1);
         pv_put(buf, cap, &len, line, z + 1, trunc);
+        if (ol[prefix + i].n > z && z >= sizeof line - 2) {
+            pv_put(buf, cap, &len, "... (line truncated)",
+                   sizeof "... (line truncated)" - 1, trunc);
+        }
     }
     if (removed > show) {
         char more[64];
@@ -202,6 +204,10 @@ static void build_preview(const char *path, const char *old, size_t old_len,
         size_t z = sanitize_line(nl[prefix + i].p, nl[prefix + i].n, line + 1,
                                  sizeof line - 1);
         pv_put(buf, cap, &len, line, z + 1, trunc);
+        if (nl[prefix + i].n > z && z >= sizeof line - 2) {
+            pv_put(buf, cap, &len, "... (line truncated)",
+                   sizeof "... (line truncated)" - 1, trunc);
+        }
     }
     if (added > show) {
         char more[64];
@@ -578,9 +584,9 @@ int tool_run_edit(const char *cwd, const JDoc *d, int args, void *ud,
                      "ERROR: edit: %s changed since approval; re-run the edit",
                      plan->path);
     }
-    if (write_file_replace_at(prep->dfd, prep->base, plan->new_content,
-                              plan->new_len, plan->mode, plan->uid,
-                              plan->gid) != 0) {
+    if (write_file_replace_at_keyed(prep->dfd, prep->base, plan->new_content,
+                                    plan->new_len, plan->mode, plan->uid,
+                                    plan->gid) != 0) {
         return failf(err, err_cap, "ERROR: edit: write failed: %s",
                      strerror(errno));
     }

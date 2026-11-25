@@ -27,6 +27,7 @@ enum PermDecision {
     PERM_ASK = -1,
     PERM_STALE = -2,
     PERM_DENY_PROTECTED = -3,
+    PERM_DENY_MUTATE = -4,
 };
 
 enum ToolAskKind {
@@ -147,6 +148,9 @@ enum {
     PERM_SESSION_READ = 1u << 3,
     PERM_SESSION_MUTATE = 1u << 4,
     PERM_SESSION_EXEC = 1u << 5,
+    /* Hard deny for the mutate class; set from MEONG_NO_MUTATE or
+     * --no-mutate and outranks every allow bit and a one-call approval. */
+    PERM_NO_MUTATE = 1u << 6,
 };
 
 /* 1 when resolved is a real path, 0 when the leaf or a parent does not exist. */

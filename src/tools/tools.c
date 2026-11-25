@@ -333,6 +333,12 @@ int tool_execute(const char *name, const char *args, size_t args_len,
                      req.resolved[0] ? req.resolved : resource);
             goto done;
         }
+        if (dec == PERM_DENY_MUTATE) {
+            set_errf(err, err_cap,
+                     "ERROR: mutation is disabled (MEONG_NO_MUTATE); do not "
+                     "retry: %s", def->name);
+            goto done;
+        }
         if (dec == PERM_STALE) {
             set_errf(err, err_cap,
                      "ERROR: %s: %s changed since approval; re-run the call",

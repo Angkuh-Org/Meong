@@ -120,6 +120,37 @@ static void test_session_bits(const char *cwd, const char *inside,
        "session exec does not allow a mutation");
 }
 
+static void test_no_mutate(const char *cwd, const char *inside) {
+    ok(decide(cwd, PERM_NO_MUTATE, TOOL_ACT_MUTATE, inside, NULL, 0) ==
+           PERM_DENY_MUTATE,
+       "no-mutate denies a plain mutation");
+    ok(decide(cwd, PERM_NO_MUTATE | PERM_ALLOW_WRITES, TOOL_ACT_MUTATE,
+               inside, NULL, 0) == PERM_DENY_MUTATE,
+       "no-mutate outranks --allow-writes");
+    ok(decide(cwd, PERM_NO_MUTATE | PERM_SESSION_MUTATE, TOOL_ACT_MUTATE,
+               inside, NULL, 0) == PERM_DENY_MUTATE,
+       "no-mutate outranks a session mutate grant");
+
+    ToolIdentity id = {.dev = 1, .ino = 2, .size = 3, .mtime_s = 4,
+                       .mtime_ns = 5, .mode = 0640, .hash = 6, .valid = 1};
+    PermReq r = {.action = TOOL_ACT_MUTATE, .tool = "edit",
+                 .path = inside, .ident = &id};
+    PermPolicy p = {.cwd = cwd,
+                    .perms = PERM_NO_MUTATE | PERM_ALLOW_WRITES |
+                             PERM_SESSION_MUTATE,
+                    .call_approved = 1,
+                    .approved = &id};
+    ok(perm_decide(&p, &r) == PERM_DENY_MUTATE,
+       "no-mutate outranks a valid approval ticket");
+
+    ok(decide(cwd, PERM_NO_MUTATE, TOOL_ACT_READ, inside, NULL, 0) ==
+           PERM_ALLOW,
+       "no-mutate leaves an inside read alone");
+    ok(decide(cwd, PERM_NO_MUTATE | PERM_ALLOW_EXEC, TOOL_ACT_EXEC, NULL,
+               "/bin/true", 0) == PERM_ALLOW,
+       "no-mutate leaves an allowed exec alone");
+}
+
 static void test_call_and_missing(const char *cwd, const char *outside) {
     ok(decide(cwd, 0, TOOL_ACT_READ, outside, NULL, 1) == PERM_ALLOW,
        "one-call approval allows an outside read");
@@ -266,7 +297,7 @@ static void test_protected(const char *cwd, const char *outside) {
     PermPolicy pol = {.cwd = cwd,
                       .perms = PERM_YOLO_READ | PERM_ALLOW_WRITES |
                                PERM_SESSION_MUTATE | PERM_ALLOW_EXEC |
-                               PERM_SESSION_EXEC,
+                               PERM_SESSION_EXEC | PERM_NO_MUTATE,
                       .call_approved = 1,
                       .approved = &id};
     ok(perm_decide(&pol, &r) == PERM_DENY_PROTECTED,
@@ -375,6 +406,7 @@ int main(void) {
 
     test_mask_matrix(root, inside, outside);
     test_session_bits(root, inside, outside);
+    test_no_mutate(root, inside);
     test_call_and_missing(root, outside);
     test_resolve(root, inside, outside);
     test_ask(root, outside);

@@ -5,6 +5,15 @@ Meong's TUI exposes five tools: three **read-only** (`read_file`, `search`,
 selected model reports `supports_function_calling: true`; `--oneshot` does not
 send a `tools` array. There is no shell or delete tool yet.
 
+**Status 2026-11-24: gated on the current tree (v3.2 PASS).** The fresh Phase 4
+gate ran as **12×5 = 60**: safety **60/60**, integrity **60/60**, capability
+**58/60** (CP lower **0.8988**); M11 live is excluded. The old v2 arm-a5 run
+remains a preserved **FAIL as-run** and is not re-scored. The `v0.18.0`/
+`v0.19.0` tag binaries predate the kill switch and are not the tested binary;
+`v0.19.1` is the tested binary. The older release pages remain provisional
+until reviewed. `MEONG_NO_MUTATE=1` /
+`--no-mutate` refuses both tools for the run.
+
 | Tool | Arguments | Behavior |
 | --- | --- | --- |
 | `read_file` | `path`, `start_line?`, `end_line?` | Metadata + range; default 400 lines |
@@ -64,12 +73,16 @@ model's tool-name string.
   replaces the composer with a permission card. `search` asks on its root
   argument — the path the card shows — and one approval covers that call.
 - **`mutate`** (`edit`, `write`): always asks, even inside the cwd. The edit
-  card shows the path, line and a bounded `-`/`+` diff; the write card shows
-  the resolved path, the create or overwrite verb, the byte/line counts, and
-  a sanitized sample. `--allow-writes` is the explicit standing opt-out; it
+  card shows the path, line, the old/new `old_string`/`new_string` byte counts
+  and a bounded `-`/`+` diff; a line that fills the preview buffer is followed
+  by `... (line truncated)`, and tabs render as four spaces. The write card
+  shows the resolved path, the create or overwrite verb, the byte/line counts,
+  and a sanitized sample. `--allow-writes` is the explicit standing opt-out; it
   skips the card but **not** the protected list, the
   symlink/hardlink/owner checks, the stale-content re-check, or the
-  no-replace create primitive.
+  no-replace create primitive. `MEONG_NO_MUTATE=1` or `--no-mutate` is a hard
+  deny for the class: it outranks `--allow-writes`, a session mutate grant, and
+  a one-call approval. A protected path still reports its specific refusal.
 - **`exec`** (a future allowlisted `run`): always asks, even inside the cwd.
   `--allow-exec` is the explicit opt-out; it only covers allowlisted commands,
   never a free shell.
@@ -112,6 +125,8 @@ The card is a confirmation, not a sandbox. `--yolo`, `--allow-writes`, and
 `--allow-exec` are standing opt-outs: they carry the same credential risk as
 running the action yourself. `--allow-writes` still cannot touch a protected
 path or a linked/foreign-owned target; `--yolo` cannot read a protected path.
+`MEONG_NO_MUTATE=1` / `--no-mutate` is the field kill switch: it refuses
+`edit` and `write` for the whole run and outranks every allow bit.
 Only use them when you accept that a prompt-injected tool result could
 exercise that access and send the contents upstream through PAIG.
 

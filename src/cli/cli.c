@@ -62,6 +62,7 @@ void usage(FILE *out) {
             "  --yolo             allow reads outside the working directory\n"
             "  --allow-writes     allow mutating tools without a prompt\n"
             "  --allow-exec       allow allowlisted commands without a prompt\n"
+            "  --no-mutate        refuse edit and write for this run\n"
             "  -h, --help         this text\n"
             "  -V, --version      version\n"
             "\n"
@@ -148,6 +149,8 @@ int parse_args(int argc, char **argv, Options *o) {
             o->allow_writes = 1;
         } else if (strcmp(arg, "--allow-exec") == 0) {
             o->allow_exec = 1;
+        } else if (strcmp(arg, "--no-mutate") == 0) {
+            o->no_mutate = 1;
         } else if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
             o->help = 1;
         } else if (strcmp(arg, "-V") == 0 || strcmp(arg, "--version") == 0) {
