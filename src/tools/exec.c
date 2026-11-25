@@ -1,7 +1,8 @@
 /*
- * Handlers behind tool_execute(): read_file, search and list_dir.  Everything
- * here is read-only and every path that reaches fopen/opendir/readlink went
- * through the authorize callback first.  The prototypes live in exec.h.
+ * Handlers behind tool_execute(): read_file, search, list_dir and glob.
+ * Everything here is read-only and every path that reaches fopen/opendir/
+ * readlink went through the authorize callback first.  The prototypes live in
+ * exec.h.
  */
 #include <dirent.h>
 #include <errno.h>
@@ -21,6 +22,7 @@
 #define JSMN_HEADER
 #include "json/jsmn.h"
 #include "tools/exec.h"
+#include "tools/glob.h"
 #include "tools/tools.h"
 
 #define OUT_CAP (64u << 10)
@@ -32,6 +34,11 @@
 #define SEARCH_CTX_MAX 20
 #define SEARCH_LINE_MAX (8u << 10)
 #define LIST_ENTRIES_MAX 500
+#ifndef GLOB_VISIT_MAX
+#define GLOB_VISIT_MAX 50000u
+#endif
+#define GLOB_RESULTS_MAX 200
+#define GLOB_DEPTH_MAX 32
 
 enum {
     WALK_OK = 0,
@@ -738,6 +745,432 @@ done:
         free(names[i]);
     }
     free(names);
+    free(path);
+    return rc;
+}
+
+/* ---- glob --------------------------------------------------------------- */
+
+typedef struct {
+    char *name;
+    unsigned char type;
+} GlobEnt;
+
+typedef struct {
+    const char *pattern;
+    GlobPat pat;
+    char out_root[PATH_MAX];
+    const char *abs_root;
+    size_t abs_root_len;
+    char *heap[GLOB_RESULTS_MAX];
+    int n;
+    size_t total;
+    size_t visited;
+    int stopped;
+    int deep;
+    int skipped;
+    int protected_count;
+    int symlinks;
+    int unreadable;
+    int root_only;
+    int truncated;
+} Glob;
+
+static int cmp_glob_ent(const void *a, const void *b) {
+    return strcmp(((const GlobEnt *)a)->name, ((const GlobEnt *)b)->name);
+}
+
+static int cmp_glob_path(const void *a, const void *b) {
+    return strcmp(*(char *const *)a, *(char *const *)b);
+}
+
+static void glob_swap(char **a, char **b) {
+    char *t = *a;
+    *a = *b;
+    *b = t;
+}
+
+/* Max-heap by strcmp: the root is the largest of the kept 200 paths. */
+static void glob_heap_up(Glob *g, int i) {
+    while (i > 0) {
+        int parent = (i - 1) / 2;
+        if (strcmp(g->heap[i], g->heap[parent]) <= 0) {
+            break;
+        }
+        glob_swap(&g->heap[i], &g->heap[parent]);
+        i = parent;
+    }
+}
+
+static void glob_heap_down(Glob *g, int i) {
+    for (;;) {
+        int left = i * 2 + 1;
+        int right = left + 1;
+        int largest = i;
+        if (left < g->n && strcmp(g->heap[left], g->heap[largest]) > 0) {
+            largest = left;
+        }
+        if (right < g->n && strcmp(g->heap[right], g->heap[largest]) > 0) {
+            largest = right;
+        }
+        if (largest == i) {
+            break;
+        }
+        glob_swap(&g->heap[i], &g->heap[largest]);
+        i = largest;
+    }
+}
+
+/* Rejected: a register pass. x19-x25 are all live in this sift, and
+ * tool_run_glob/glob_walk already hold x19-x28; glob_pat_match saves x23/x24
+ * only on the globstar path. No callee-saved register is free. */
+static void glob_heap_add(Glob *g, char *path) {
+    g->total++;
+    if (g->n < GLOB_RESULTS_MAX) {
+        g->heap[g->n] = path;
+        glob_heap_up(g, g->n);
+        g->n++;
+    } else if (strcmp(path, g->heap[0]) < 0) {
+        free(g->heap[0]);
+        g->heap[0] = path;
+        glob_heap_down(g, 0);
+    } else {
+        free(path);
+    }
+}
+
+static void glob_offer(Glob *g, const char *rel) {
+    size_t ol = strlen(g->out_root);
+    size_t rl = strlen(rel);
+    int slash = ol > 0 && g->out_root[ol - 1] != '/';
+    char *path = xmalloc(ol + (size_t)slash + rl + 1);
+    memcpy(path, g->out_root, ol);
+    if (slash) {
+        path[ol] = '/';
+    }
+    memcpy(path + ol + slash, rel, rl + 1);
+    glob_heap_add(g, path);
+}
+
+static void glob_offer_fixed(Glob *g, const char *path) {
+    glob_heap_add(g, xstrdup(path));
+}
+
+static int glob_skip_name(const char *name) {
+    return strcmp(name, ".git") == 0 || strcmp(name, "build") == 0 ||
+           strcmp(name, "node_modules") == 0;
+}
+
+static void glob_walk(Glob *g, const char *dir, int depth) {
+    if (g->stopped) {
+        return;
+    }
+    if (depth > GLOB_DEPTH_MAX) {
+        g->deep = 1;
+        return;
+    }
+    DIR *dp = opendir(dir);
+    if (!dp) {
+        g->unreadable++;
+        return;
+    }
+    GlobEnt *v = NULL;
+    size_t n = 0;
+    size_t cap = 0;
+    struct dirent *de;
+    while ((de = readdir(dp)) != NULL) {
+        if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0) {
+            continue;
+        }
+        if (g->visited >= GLOB_VISIT_MAX) {
+            g->stopped = 1;
+            break;
+        }
+        g->visited++;
+        /* TODO(mem): one xstrdup per entry plus the GlobEnt vector (~1% Ir
+         * for xstrdup alone, plus a malloc per entry). Processing the
+         * dirent while the DIR is open would drop both, but the sorted
+         * recursion order under GLOB_VISIT_MAX must be preserved. */
+        if (n == cap) {
+            cap = cap ? cap * 2 : 32;
+            v = xrealloc(v, cap * sizeof *v);
+        }
+        v[n].name = xstrdup(de->d_name);
+        v[n].type = de->d_type;
+        n++;
+    }
+    closedir(dp);
+    if (n > 1) {
+        /* Rejected: deleting this sort. Under GLOB_VISIT_MAX it fixes which
+         * subtree spends the remaining budget, so a truncated walk is
+         * stable. */
+        qsort(v, n, sizeof *v, cmp_glob_ent);
+    }
+    for (size_t i = 0; i < n; i++) {
+        char *path = path_join(dir, v[i].name);
+        unsigned char type = v[i].type;
+        if (type == DT_UNKNOWN) {
+            struct stat st;
+            if (lstat(path, &st) != 0) {
+                g->unreadable++;
+                free(path);
+                free(v[i].name);
+                continue;
+            }
+            if (S_ISDIR(st.st_mode)) {
+                type = DT_DIR;
+            } else if (S_ISREG(st.st_mode)) {
+                type = DT_REG;
+            } else if (S_ISLNK(st.st_mode)) {
+                type = DT_LNK;
+            }
+        }
+        if (type == DT_DIR) {
+            if (glob_skip_name(v[i].name)) {
+                g->skipped++;
+            } else if (perm_protected(path)) {
+                g->protected_count++;
+            } else if (!g->stopped) {
+                glob_walk(g, path, depth + 1);
+            }
+        } else if (type == DT_REG) {
+            /* TODO(perf): perm_protected is ~12.9% of walk Ir (callgrind,
+             * 1k files). Matching first would skip it for non-matches, but
+             * that changes protected_count and the gate order; a policy
+             * decision, not a codegen tweak. */
+            if (perm_protected(path)) {
+                g->protected_count++;
+            } else {
+                const char *rel = path + g->abs_root_len;
+                if (*rel == '/') {
+                    rel++;
+                }
+                int m = glob_pat_match(&g->pat, rel, !g->root_only);
+                if (m == 1) {
+                    glob_offer(g, rel);
+                } else if (m < 0) {
+                    g->unreadable++;
+                }
+            }
+        } else if (type == DT_LNK) {
+            g->symlinks++;
+        }
+        free(path);
+        free(v[i].name);
+    }
+    free(v);
+}
+
+static void glob_emit(Glob *g, Buf *out) {
+    if (g->n > 1) {
+        qsort(g->heap, (size_t)g->n, sizeof g->heap[0], cmp_glob_path);
+    }
+    int emitted = 0;
+    for (int i = 0; i < g->n; i++) {
+        size_t len = strlen(g->heap[i]);
+        if (out->len + len + 1 > OUT_CAP) {
+            g->truncated = 1;
+            break;
+        }
+        buf_printf(out, "%s\n", g->heap[i]);
+        emitted++;
+    }
+    if (g->n == 0) {
+        if (strchr(g->pattern, '{')) {
+            buf_adds(out, "[no matches; brace expansion is not supported]\n");
+        } else if (g->skipped > 0) {
+            buf_adds(out, "[no matches; skipped build or node_modules]\n");
+        } else if (g->unreadable > 0) {
+            buf_printf(out, "[no matches; %d entries unreadable]\n",
+                       g->unreadable);
+        } else {
+            buf_adds(out, "[no matches]\n");
+        }
+    }
+    if (g->total > GLOB_RESULTS_MAX) {
+        if (g->stopped) {
+            buf_printf(out,
+                       "[... at least %zu matches, showing first %d ...]\n",
+                       g->total, emitted);
+        } else {
+            buf_printf(out, "[... %zu matches, showing first %d ...]\n",
+                       g->total, emitted);
+        }
+    }
+    if (g->stopped) {
+        buf_printf(out, "[... incomplete: visited %zu entries ...]\n",
+                   (size_t)GLOB_VISIT_MAX);
+    }
+    if (g->deep) {
+        buf_adds(out, "[... deeper directories not scanned ...]\n");
+    }
+    if (g->protected_count) {
+        buf_printf(out, "[... %d paths skipped (protected) ...]\n",
+                   g->protected_count);
+    }
+    if (g->unreadable) {
+        buf_printf(out, "[... %d entries unreadable ...]\n", g->unreadable);
+    }
+    if (g->truncated) {
+        buf_adds(out, "[... output truncated at 64 KiB ...]\n");
+    }
+}
+
+int tool_run_glob(const char *cwd, const JDoc *d, int args, void *ud,
+                  ToolAuthorizeFn authorize, ToolAsk *ask,
+                  const ToolPrep *prep, Buf *out, char *err, size_t err_cap) {
+    (void)prep;
+    Ctx c = {.ud = ud, .authorize = authorize, .ask = ask,
+             .action = TOOL_ACT_READ, .tool = "glob", .out = out,
+             .err = err, .err_cap = err_cap};
+    char *pattern = NULL;
+    char *path = NULL;
+    char pat[PATH_MAX];
+    char out_root[PATH_MAX];
+    char full[PATH_MAX];
+    char *abs_root = NULL;
+    Glob g;
+    memset(&g, 0, sizeof g);
+    int rc = TOOL_ERR;
+
+    if (arg_string(d, args, "pattern", 1, &pattern, &c) < 0 ||
+        arg_string(d, args, "path", 1, &path, &c) < 0) {
+        goto done;
+    }
+    if (!*pattern) {
+        failf(&c, "ERROR: argument pattern must not be empty");
+        goto done;
+    }
+    if (!*path) {
+        failf(&c, "ERROR: argument path must not be empty");
+        goto done;
+    }
+    if (strlen(pattern) >= sizeof pat) {
+        failf(&c, "ERROR: glob pattern is too long");
+        goto done;
+    }
+    memcpy(pat, pattern, strlen(pattern) + 1);
+    int root_only = 0;
+    if (pat[0] == '.' && pat[1] == '/') {
+        root_only = 1;
+        memmove(pat, pat + 2, strlen(pat + 2) + 1);
+    }
+    if (!*pat) {
+        failf(&c, "ERROR: glob pattern must contain a name");
+        goto done;
+    }
+    size_t pl = strlen(pat);
+    if (pl && pat[pl - 1] == '/') {
+        while (pl && pat[pl - 1] == '/') {
+            pl--;
+        }
+        pat[pl] = '\0';
+        if (!(pl >= 2 && pat[pl - 1] == '*' && pat[pl - 2] == '*')) {
+            if (pl + 3 >= sizeof pat) {
+                failf(&c, "ERROR: glob pattern is too long");
+                goto done;
+            }
+            memcpy(pat + pl, "/**", 4);
+        }
+    }
+    if (!glob_pattern_ok(pat, err, err_cap)) {
+        goto done;
+    }
+
+    int a = ctx_allow(&c, path);
+    if (a < 0) {
+        rc = TOOL_NEED_PERM;
+        goto done;
+    }
+    if (a == 0) {
+        failf(&c, "ERROR: permission denied: %s", path);
+        goto done;
+    }
+    int fn;
+    if (path[0] == '/') {
+        fn = snprintf(full, sizeof full, "%s", path);
+    } else {
+        if (!cwd || !*cwd) {
+            failf(&c, "ERROR: no working directory for %s", path);
+            goto done;
+        }
+        fn = snprintf(full, sizeof full, "%s/%s", cwd, path);
+    }
+    if (fn < 0 || (size_t)fn >= sizeof full) {
+        failf(&c, "ERROR: path is too long: %s", path);
+        goto done;
+    }
+    abs_root = realpath(full, NULL);
+    if (!abs_root) {
+        failf(&c, "ERROR: cannot resolve %s: %s", full, strerror(errno));
+        goto done;
+    }
+    if (strlen(abs_root) >= sizeof out_root) {
+        failf(&c, "ERROR: resolved path is too long: %s", abs_root);
+        goto done;
+    }
+    struct stat st;
+    if (stat(abs_root, &st) != 0) {
+        failf(&c, "ERROR: cannot stat %s: %s", path, strerror(errno));
+        goto done;
+    }
+    if (perm_protected(abs_root)) {
+        failf(&c, "ERROR: protected path: %s", abs_root);
+        goto done;
+    }
+
+    size_t ol = strlen(path);
+    if (ol >= sizeof out_root) {
+        failf(&c, "ERROR: path is too long: %s", path);
+        goto done;
+    }
+    memcpy(out_root, path, ol + 1);
+    while (ol > 1 && out_root[ol - 1] == '/') {
+        out_root[--ol] = '\0';
+    }
+    if (strcmp(out_root, ".") == 0) {
+        out_root[0] = '\0';
+        ol = 0;
+    }
+
+    g.pattern = pat;
+    g.abs_root = abs_root;
+    g.abs_root_len = strlen(abs_root);
+    g.root_only = root_only;
+    memcpy(g.out_root, out_root, ol + 1);
+    if (glob_pat_compile(&g.pat, pat) < 0) {
+        failf(&c, "ERROR: glob pattern has too many path segments (max %d)",
+              GLOB_SEG_MAX);
+        goto done;
+    }
+
+    if (S_ISREG(st.st_mode)) {
+        const char *base = strrchr(abs_root, '/');
+        base = base ? base + 1 : abs_root;
+        int m = glob_pat_match(&g.pat, base, 1);
+        if (m < 0) {
+            failf(&c, "ERROR: glob pattern or path is too long");
+            goto done;
+        }
+        if (m == 1) {
+            glob_offer_fixed(&g, out_root);
+        }
+    } else if (S_ISDIR(st.st_mode)) {
+        glob_walk(&g, abs_root, 0);
+    } else {
+        failf(&c, "ERROR: not a file or directory: %s", path);
+        goto done;
+    }
+
+    glob_emit(&g, out);
+    rc = TOOL_OK;
+
+done:
+    for (int i = 0; i < g.n; i++) {
+        free(g.heap[i]);
+    }
+    free(abs_root);
+    free(pattern);
     free(path);
     return rc;
 }

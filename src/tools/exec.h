@@ -21,4 +21,8 @@ int tool_run_list_dir(const char *cwd, const JDoc *d, int args, void *ud,
                       const ToolPrep *prep, Buf *out, char *err,
                       size_t err_cap);
 
+int tool_run_glob(const char *cwd, const JDoc *d, int args, void *ud,
+                  ToolAuthorizeFn authorize, ToolAsk *ask,
+                  const ToolPrep *prep, Buf *out, char *err, size_t err_cap);
+
 #endif

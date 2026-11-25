@@ -135,8 +135,8 @@ static void test_tools_json(void) {
         return;
     }
     int root = jdoc_root(&d);
-    ok(jtype(&d, root) == J_ARRAY && jlen(&d, root) == 5,
-       "tools_json is an array of five tools");
+    ok(jtype(&d, root) == J_ARRAY && jlen(&d, root) == 6,
+       "tools_json is an array of six tools");
 
     static const char *want[] = {"read_file", "search", "list_dir"};
     for (int i = 0; i < 3; i++) {
@@ -215,11 +215,44 @@ static void test_tools_json(void) {
     free(glv);
     free(clv);
 
-    /* edit: path/old_string/new_string required, replace_all optional bool. */
+    /* glob: pattern+path required, no limit. */
     fn = jget(&d, jgeti(&d, root, 3), "function");
+    int gn = jget(&d, fn, "name");
+    char *gv = gn >= 0 ? jstring_alloc(&d, gn) : NULL;
+    ok(gv && strcmp(gv, "glob") == 0, "tool 3 is glob");
+    free(gv);
+    int gdesc = jget(&d, fn, "description");
+    char *gdv = gdesc >= 0 ? jstring_alloc(&d, gdesc) : NULL;
+    ok(gdv && strstr(gdv, "Files only") && strstr(gdv, "Case-sensitive") &&
+           strstr(gdv, "untrusted data"),
+       "glob documents files-only, case and untrusted output");
+    free(gdv);
+    params = jget(&d, fn, "parameters");
+    props = jget(&d, params, "properties");
+    req = jget(&d, params, "required");
+    char *g0 = jlen(&d, req) == 2 ? jstring_alloc(&d, jgeti(&d, req, 0)) : NULL;
+    char *g1 = jlen(&d, req) == 2 ? jstring_alloc(&d, jgeti(&d, req, 1)) : NULL;
+    ok(g0 && g1 && strcmp(g0, "pattern") == 0 && strcmp(g1, "path") == 0,
+       "glob requires pattern and path");
+    free(g0);
+    free(g1);
+    int gp = jget(&d, props, "pattern");
+    int gpp = jget(&d, props, "path");
+    char *gpv = gp >= 0 ? jstring_alloc(&d, jget(&d, gp, "type")) : NULL;
+    char *gppv = gpp >= 0 ? jstring_alloc(&d, jget(&d, gpp, "type")) : NULL;
+    ok(gpv && gppv && strcmp(gpv, "string") == 0 &&
+           strcmp(gppv, "string") == 0,
+       "glob offers string pattern and path");
+    free(gpv);
+    free(gppv);
+    int lim = jget(&d, props, "limit");
+    ok(lim < 0, "glob has no limit knob");
+
+    /* edit: path/old_string/new_string required, replace_all optional bool. */
+    fn = jget(&d, jgeti(&d, root, 4), "function");
     int en = jget(&d, fn, "name");
     char *ev = en >= 0 ? jstring_alloc(&d, en) : NULL;
-    ok(ev && strcmp(ev, "edit") == 0, "tool 3 is edit");
+    ok(ev && strcmp(ev, "edit") == 0, "tool 4 is edit");
     free(ev);
     int edesc = jget(&d, fn, "description");
     char *edv = edesc >= 0 ? jstring_alloc(&d, edesc) : NULL;
@@ -247,10 +280,10 @@ static void test_tools_json(void) {
     free(rav);
 
     /* write: path/content required, overwrite optional bool, 24 KiB cap. */
-    fn = jget(&d, jgeti(&d, root, 4), "function");
+    fn = jget(&d, jgeti(&d, root, 5), "function");
     int wn = jget(&d, fn, "name");
     char *wv = wn >= 0 ? jstring_alloc(&d, wn) : NULL;
-    ok(wv && strcmp(wv, "write") == 0, "tool 4 is write");
+    ok(wv && strcmp(wv, "write") == 0, "tool 5 is write");
     free(wv);
     int wdesc = jget(&d, fn, "description");
     char *wdv = wdesc >= 0 ? jstring_alloc(&d, wdesc) : NULL;
@@ -637,6 +670,202 @@ static void test_search(const char *dir, const char *scratch) {
     free(notes);
 }
 
+/* ---- glob --------------------------------------------------------------- */
+
+static int glob_run(const char *pattern, const char *path, Buf *out,
+                    ToolAsk *ask, char *err, size_t err_cap) {
+    char args[4096];
+    snprintf(args, sizeof args, "{\"pattern\":\"%s\",\"path\":\"%s\"}",
+             pattern, path);
+    return run("glob", args, auth_allow, NULL, out, ask, err, err_cap);
+}
+
+static void test_glob(const char *dir) {
+    char *sub = join(dir, "sub");
+    char *deep = join(sub, "deep");
+    char *git = join(dir, ".git");
+    char *build = join(dir, "build");
+    char *mods = join(dir, "node_modules");
+    char *ssh = join(dir, ".ssh");
+    char *ac = join(dir, "a.c");
+    char *hidden = join(dir, ".hidden.c");
+    char *txt = join(dir, "b.txt");
+    char *subc = join(sub, "c.c");
+    char *deepc = join(deep, "d.c");
+    char *gitc = join(git, "config.c");
+    char *buildc = join(build, "x.c");
+    char *modc = join(mods, "y.c");
+    char *env = join(dir, ".env");
+    char *key = join(ssh, "id_rsa");
+    char *linkfile = join(dir, "linkfile.c");
+    char *linkdir = join(dir, "linkdir");
+    Buf out;
+    ToolAsk ask;
+    char err[512];
+
+    mkdir(sub, 0700);
+    mkdir(deep, 0700);
+    mkdir(git, 0700);
+    mkdir(build, 0700);
+    mkdir(mods, 0700);
+    mkdir(ssh, 0700);
+    put(ac, "a\n", 2);
+    put(hidden, "h\n", 2);
+    put(txt, "t\n", 2);
+    put(subc, "c\n", 2);
+    put(deepc, "d\n", 2);
+    put(gitc, "g\n", 2);
+    put(buildc, "b\n", 2);
+    put(modc, "m\n", 2);
+    put(env, "E=1\n", 4);
+    put(key, "k\n", 2);
+    ok(symlink("a.c", linkfile) == 0 && symlink("sub", linkdir) == 0,
+       "glob fixture creates file and directory symlinks");
+
+    int rc = glob_run("*.c", dir, &out, &ask, err, sizeof err);
+    ok(rc == TOOL_OK, "glob returns TOOL_OK");
+    ok(out.p && strstr(out.p, ac) && strstr(out.p, hidden) &&
+           strstr(out.p, subc) && strstr(out.p, deepc),
+       "glob no-slash pattern is basename at any depth");
+    ok(out.p && strstr(out.p, txt) == NULL,
+       "glob does not emit non-matching names");
+    ok(out.p && strstr(out.p, linkfile) == NULL &&
+           strstr(out.p, linkdir) == NULL,
+       "glob never lists symlinks");
+    ok(out.p && strstr(out.p, gitc) == NULL &&
+           strstr(out.p, buildc) == NULL && strstr(out.p, modc) == NULL,
+       "glob skips .git, build and node_modules directories");
+    ok(out.p && strstr(out.p, env) == NULL && strstr(out.p, key) == NULL,
+       "glob never emits a protected child");
+    ok(out.p && strstr(out.p, "paths skipped (protected)") != NULL,
+       "glob reports protected skips");
+    const char *ph = out.p ? strstr(out.p, hidden) : NULL;
+    const char *pa = out.p ? strstr(out.p, ac) : NULL;
+    ok(ph && pa && ph < pa,
+       "glob sorts output byte-wise, not by directory order");
+    buf_free(&out);
+
+    rc = glob_run("**/*.c", dir, &out, &ask, err, sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, ac) &&
+           strstr(out.p, deepc),
+       "glob **/*.c matches zero and many directories");
+    buf_free(&out);
+
+    rc = glob_run("sub/*.c", dir, &out, &ask, err, sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, subc) &&
+           strstr(out.p, deepc) == NULL && strstr(out.p, ac) == NULL,
+       "glob sub/*.c is one level only");
+    buf_free(&out);
+
+    rc = glob_run("sub/**/*.c", dir, &out, &ask, err, sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, subc) &&
+           strstr(out.p, deepc),
+       "glob sub/**/*.c recurses");
+    buf_free(&out);
+
+    rc = glob_run("./*.c", dir, &out, &ask, err, sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, ac) &&
+           strstr(out.p, hidden) && strstr(out.p, subc) == NULL,
+       "glob ./ anchors a slashless pattern at the root");
+    buf_free(&out);
+
+    rc = glob_run("*.txt", dir, &out, &ask, err, sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, txt) &&
+           strstr(out.p, ac) == NULL,
+       "glob filters by extension");
+    buf_free(&out);
+
+    rc = glob_run("A.C", dir, &out, &ask, err, sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, "[no matches") != NULL,
+       "glob is case-sensitive");
+    buf_free(&out);
+
+    rc = glob_run("{a,b}.c", dir, &out, &ask, err, sizeof err);
+    ok(rc == TOOL_OK && out.p &&
+           strstr(out.p, "brace expansion is not supported") != NULL,
+       "glob explains an unsupported brace pattern");
+    buf_free(&out);
+
+    rc = glob_run("*.c", ac, &out, &ask, err, sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, ac) != NULL,
+       "glob accepts a regular-file root");
+    buf_free(&out);
+
+    rc = glob_run("*.txt", ac, &out, &ask, err, sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, "[no matches]") != NULL,
+       "glob file root misses a non-matching pattern");
+    buf_free(&out);
+
+    const char *saved_cwd = test_cwd;
+    test_cwd = dir;
+    rc = glob_run("*.c", ".", &out, &ask, err, sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, "a.c") &&
+           strstr(out.p, "./a.c") == NULL,
+       "glob . emits root-relative paths without ./");
+    buf_free(&out);
+    test_cwd = saved_cwd;
+
+    /* Result cap: 201 matches keep the lexicographically first 200. */
+    char *cap = join(dir, "cap");
+    mkdir(cap, 0700);
+    for (int i = 0; i < 201; i++) {
+        char name[32];
+        snprintf(name, sizeof name, "f%03d.c", i);
+        char *p = join(cap, name);
+        put(p, "x\n", 2);
+        free(p);
+    }
+    rc = glob_run("*.c", cap, &out, &ask, err, sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, "201 matches, showing first 200"),
+       "glob reports the result cap");
+    ok(out.p && strstr(out.p, "f000.c") && strstr(out.p, "f200.c") == NULL,
+       "glob keeps the first 200 sorted paths");
+    buf_free(&out);
+
+    /* Depth cap: the file at depth 33 is not scanned. */
+    char *chain = join(dir, "chain");
+    mkdir(chain, 0700);
+    char *cur = xstrdup(chain);
+    for (int i = 0; i < 34; i++) {
+        char *next = join(cur, "d");
+        mkdir(next, 0700);
+        free(cur);
+        cur = next;
+    }
+    char *bottom = join(cur, "bottom.c");
+    put(bottom, "z\n", 2);
+    rc = glob_run("*.c", chain, &out, &ask, err, sizeof err);
+    ok(rc == TOOL_OK && out.p &&
+           strstr(out.p, "deeper directories not scanned") != NULL,
+       "glob reports the depth cap");
+    ok(out.p && strstr(out.p, bottom) == NULL,
+       "glob does not scan past the depth cap");
+    buf_free(&out);
+
+    free(cur);
+    free(bottom);
+    free(chain);
+    free(cap);
+    free(sub);
+    free(deep);
+    free(git);
+    free(build);
+    free(mods);
+    free(ssh);
+    free(ac);
+    free(hidden);
+    free(txt);
+    free(subc);
+    free(deepc);
+    free(gitc);
+    free(buildc);
+    free(modc);
+    free(env);
+    free(key);
+    free(linkfile);
+    free(linkdir);
+}
+
 /* ---- permissions -------------------------------------------------------- */
 
 static void test_permissions(const char *dir) {
@@ -914,6 +1143,10 @@ static void test_summary(void) {
                   "\"glob\":\"*.c\"}",
                   cwd, "\"tool_\"  src  *.c",
                   "summary flattens the search pattern and glob");
+    check_summary("glob",
+                  "{\"pattern\":\"**/*.c\",\"path\":\"/home/u/proj/src\"}",
+                  cwd, "**/*.c  src",
+                  "summary shows the glob pattern unquoted and the path");
     check_summary("list_dir", "{\"path\":\"/home/u/proj\"}", cwd, ".",
                   "summary prints the cwd as a dot");
     check_summary("edit",
@@ -956,15 +1189,18 @@ int main(void) {
     char *d2 = join(root, "list");
     char *d3 = join(root, "search");
     char *d4 = join(root, "perm");
+    char *d5 = join(root, "glob");
     mkdir(d1, 0700);
     mkdir(d2, 0700);
     mkdir(d3, 0700);
     mkdir(d4, 0700);
+    mkdir(d5, 0700);
 
     test_tools_json();
     test_read_file(d1);
     test_list_dir(d2);
     test_search(d3, root);
+    test_glob(d5);
     test_permissions(d4);
     test_bound(root);
     test_dispatch();
@@ -974,6 +1210,7 @@ int main(void) {
     free(d2);
     free(d3);
     free(d4);
+    free(d5);
     rm_rf(root);
     printf(fails ? "FAILED: %d check(s)\n" : "ALL TOOL CHECKS PASSED\n", fails);
     return fails != 0;
