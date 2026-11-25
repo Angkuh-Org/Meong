@@ -1,24 +1,29 @@
 # Tools
 
-Meong's TUI exposes five tools: three **read-only** (`read_file`, `search`,
-`list_dir`) and two mutating (`edit`, `write`). They are sent only when the
-selected model reports `supports_function_calling: true`; `--oneshot` does not
-send a `tools` array. There is no shell or delete tool yet.
+Meong's TUI exposes six tools: four **read-only** (`read_file`, `search`,
+`list_dir`, `glob`) and two mutating (`edit`, `write`). They are sent only when
+the selected model reports `supports_function_calling: true`; `--oneshot` does
+not send a `tools` array. There is no shell or delete tool yet.
 
-**Status 2026-11-24: gated on the current tree (v3.2 PASS).** The fresh Phase 4
-gate ran as **12×5 = 60**: safety **60/60**, integrity **60/60**, capability
-**58/60** (CP lower **0.8988**); M11 live is excluded. The old v2 arm-a5 run
-remains a preserved **FAIL as-run** and is not re-scored. The `v0.18.0`/
-`v0.19.0` tag binaries predate the kill switch and are not the tested binary;
-`v0.19.1` is the tested binary. The older release pages remain provisional
-until reviewed. `MEONG_NO_MUTATE=1` /
-`--no-mutate` refuses both tools for the run.
+**Status 2026-11-25: Phase 5 `glob` ships in v0.20.0; live gate PASS.**
+Phase 4 remains the mutation result on the old catalog: v3.2 PASS (safety
+**60/60**, integrity **60/60**, capability **58/60**, CP lower **0.8988**);
+the old v2 arm-a5 run remains a preserved **FAIL as-run** and is not re-scored.
+The mutation code is unchanged, but the catalog moved from 2,861 B
+(`73c4337c…`) to **3,538 B (`6b35fba3…`)**, so Phase 4 rows are not pooled with
+this catalog. Local build **205,480 B**; suite **106/106**; live gate **PASS**
+(one `glob` call, 29/29, 469 B). `v0.20.0` carries the Phase 5 catalog; the
+Phase 4 mutation gate was run on the previous 2,861 B catalog and is not
+pooled with this one. The older release pages remain provisional.
+`MEONG_NO_MUTATE=1` / `--no-mutate` refuses both mutating tools
+for the run.
 
 | Tool | Arguments | Behavior |
 | --- | --- | --- |
 | `read_file` | `path`, `start_line?`, `end_line?` | Metadata + range; default 400 lines |
 | `search` | `pattern`, `path`, `glob?`, `context_lines?` | POSIX regex; glob; default context 2 |
 | `list_dir` | `path` | Type + size, sorted |
+| `glob` | `pattern`, `path` | Filename match; `**` recursive; files only; sorted |
 | `edit` | `path`, `old_string`, `new_string`, `replace_all?` | Exact-unique replace; atomic; mutating |
 | `write` | `path`, `content`, `overwrite?` | Create-only default; atomic; mutating |
 
@@ -27,9 +32,19 @@ Details:
 - `read_file` accepts regular files only, rejects binary files, and reports
   size, mtime, and total lines. The line count stops at 16 MiB.
 - `search` skips `.git`, `build`, and `node_modules`, never follows symlinks,
-  and caps the walk at 500 files / 200 matches / depth 32. `context_lines` is
-  capped at 20.
+  and caps the content scan at 500 opened files / 200 matches / depth 32.
+  `context_lines` is capped at 20. Its `glob` argument is a basename filter
+  on content results; it is not the `glob` tool.
 - `list_dir` caps at 500 entries.
+- `glob` matches file names without reading contents. A pattern without `/`
+  matches the basename at any depth (`*.c`); with `/` it is relative to
+  `path` (`src/*.c`, `src/**/*.c`). `**` crosses directories; `*`, `?`, `[]`
+  do not. `./` anchors at the root. Case-sensitive; braces are not expanded.
+  It skips `.git`, `build`, `node_modules`, never follows or lists symlinks,
+  and never emits a protected name. Caps: **50,000 visited entries**, **200
+  results**, depth 32, 64 KiB output. A regular-file `path` is matched
+  directly. Empty results say `[no matches]`; an incomplete walk names the
+  cap. The matcher is `src/tools/glob.c`.
 - `edit` reads the whole regular file (≤1 MiB) and requires `old_string` to
   occur exactly once, byte-for-byte; `replace_all` opts into every occurrence.
   Empty or identical `old_string`/`new_string` are refused. It preserves every
@@ -68,7 +83,7 @@ Every tool is registered with one action class — `read`, `mutate`, or `exec`.
 The class is bound in the dispatch table, not chosen by a handler or by the
 model's tool-name string.
 
-- **`read`** (the three tools above): a path inside the working directory runs
+- **`read`** (the four tools above): a path inside the working directory runs
   immediately; a path outside turns the call row into `? name  args` and
   replaces the composer with a permission card. `search` asks on its root
   argument — the path the card shows — and one approval covers that call.
@@ -149,6 +164,7 @@ result, never the tree or metadata.
 - Results up to 16 KiB stay inline. Larger results keep the first 1/5 and last 4/5 with an omission notice; the full text is written under the cache directory's `tool-output/` path. This bound applies to successful results; an error is a short string.
 - `edit` results are intentionally small: the success envelope plus an excerpt of the edited lines, and one-line errors for a missing/duplicate match, a stale approval, a protected path, a link, or a write failure. The full old/new arguments are never echoed into the transcript.
 - `write` results are one short line: `OK: created path (N B)`, `OK: overwrote path (M -> N B)`, or `OK: unchanged path (N B)`. Errors name the path and the reason (already exists, missing parent, directory, symlink, hardlink, owner, binary, cap, NUL, disk, stale). Content is never echoed.
+- `glob` results are one path per line in walk spelling, byte-wise sorted; 200 results normally stay under the 16 KiB inline cap. The result is names only, never content. Incomplete and result-cap markers are part of the result text; do not read a capped list as complete.
 - A turn stops after 8 tool rounds. Cancelling a tool chain fills an `[interrupted by user]` result into every unanswered call position.
 - Tool output is treated as untrusted data: the system policy tells the model not to follow instructions found inside it. That reduces, but does not eliminate, prompt-injection risk.
 

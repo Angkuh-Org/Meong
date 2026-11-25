@@ -132,13 +132,30 @@ ok "tools: accumulator handles whole and fragmented calls"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/tools_test" \
-    tests/c/tools_test.c src/tools/tools.c src/tools/exec.c \
+    tests/c/tools_test.c src/tools/tools.c src/tools/exec.c src/tools/glob.c \
     src/tools/edit.c src/tools/write.c src/tools/perm.c src/json/json.c \
     src/util/util.c src/util/renameat2.c \
     || fail "tools test did not compile"
 "$TMP/tools_test" >/dev/null \
     || fail "tool handlers failed"
 ok "tools: read_file, search, list_dir and result bounding"
+
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
+    -o "$TMP/glob_test" tests/c/glob_test.c src/tools/glob.c \
+    || fail "glob matcher test did not compile"
+"$TMP/glob_test" >"$TMP/glob.log" \
+    || { cat "$TMP/glob.log"; fail "glob matcher failed"; }
+ok "tools: glob matcher handles **, segments and limits"
+
+$HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -DGLOB_VISIT_MAX=4 -Isrc \
+    -o "$TMP/glob_visit_test" tests/c/glob_visit_test.c \
+    src/tools/tools.c src/tools/exec.c src/tools/glob.c src/tools/edit.c \
+    src/tools/write.c src/tools/perm.c src/json/json.c src/util/util.c \
+    src/util/renameat2.c \
+    || fail "glob visit test did not compile"
+"$TMP/glob_visit_test" >"$TMP/glob_visit.log" \
+    || { cat "$TMP/glob_visit.log"; fail "glob visit cap failed"; }
+ok "tools: glob visit cap marks incomplete"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/write_replace_test" \
@@ -150,7 +167,7 @@ ok "tools: atomic replace preserves mode and refuses links"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/edit_test" \
-    tests/c/edit_test.c src/tools/tools.c src/tools/exec.c \
+    tests/c/edit_test.c src/tools/tools.c src/tools/exec.c src/tools/glob.c \
     src/tools/edit.c src/tools/write.c src/tools/perm.c src/json/json.c \
     src/util/util.c src/util/renameat2.c \
     || fail "edit test did not compile"
@@ -160,7 +177,7 @@ ok "tools: edit exact-unique, CRLF, stale and protected"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/ticket_test" \
-    tests/c/ticket_test.c src/tools/tools.c src/tools/exec.c \
+    tests/c/ticket_test.c src/tools/tools.c src/tools/exec.c src/tools/glob.c \
     src/tools/edit.c src/tools/write.c src/tools/perm.c src/json/json.c \
     src/util/util.c src/util/renameat2.c \
     || fail "ticket test did not compile"
@@ -170,7 +187,7 @@ ok "tools: ASK->y ticket rejects stale content"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/edit_fault_test" \
-    tests/c/edit_fault_test.c src/tools/tools.c src/tools/exec.c \
+    tests/c/edit_fault_test.c src/tools/tools.c src/tools/exec.c src/tools/glob.c \
     src/tools/edit.c src/tools/write.c src/tools/perm.c src/json/json.c \
     src/util/util.c src/util/renameat2.c \
     -Wl,--wrap=openat,--wrap=close,--wrap=write,--wrap=fsync,--wrap=fchmod \
@@ -182,7 +199,7 @@ ok "tools: edit publish-path fault injection"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/write_test" \
-    tests/c/write_test.c src/tools/tools.c src/tools/exec.c \
+    tests/c/write_test.c src/tools/tools.c src/tools/exec.c src/tools/glob.c \
     src/tools/edit.c src/tools/write.c src/tools/perm.c src/json/json.c \
     src/util/util.c src/util/renameat2.c \
     || fail "write test did not compile"
@@ -220,7 +237,7 @@ ok "tools: action-class policy and ask record"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/prop_harness" \
-    tests/c/prop_harness.c src/tools/tools.c src/tools/exec.c \
+    tests/c/prop_harness.c src/tools/tools.c src/tools/exec.c src/tools/glob.c \
     src/tools/edit.c src/tools/write.c src/tools/perm.c src/json/json.c \
     src/util/util.c src/util/renameat2.c \
     || fail "property harness did not compile"

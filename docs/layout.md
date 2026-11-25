@@ -94,13 +94,14 @@ User contract: [`tools.md`](tools.md).
 
 `tools.c` owns the static, byte-stable OpenAI tool array and dispatch, plus
 `tool_call_summary()`, the display-only shortening of a call's arguments;
-`exec.c` implements the three read-only handlers (`read_file` with a metadata
-header and line range, `search` with glob/context, `list_dir` with type/size);
-`edit.c` implements exact-unique replace with a bounded preview, full-file
-identity, then atomic temp+fsync+rename; `write.c` implements create-only and
-explicit overwrite, with a `create`/`overwrite` preview, a parent-anchored
-create identity, and a temp+fsync+`RENAME_NOREPLACE` publish (the keyed
-overwrite path is temp+fsync+rename). Every tool is
+`exec.c` implements the four read-only handlers (`read_file` with a metadata
+header and line range, `search` with glob/context, `list_dir` with type/size,
+`glob` with the names-only walk); `glob.c` is the per-segment `fnmatch` + `**`
+matcher; `edit.c` implements exact-unique replace with a bounded preview,
+full-file identity, then atomic temp+fsync+rename; `write.c` implements
+create-only and explicit overwrite, with a `create`/`overwrite` preview, a
+parent-anchored create identity, and a temp+fsync+`RENAME_NOREPLACE` publish
+(the keyed overwrite path is temp+fsync+rename). Every tool is
 registered with an action class in `tools.c`; `tool_execute()` resolves the
 top-level path, denies a protected path, runs the prepare hook, then calls the
 gate before the handler. `perm.c` holds the pure policy, the protected list,
