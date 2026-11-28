@@ -5,8 +5,8 @@ Meong's TUI exposes six tools: four **read-only** (`read_file`, `search`,
 the selected model reports `supports_function_calling: true`; `--oneshot` does
 not send a `tools` array. There is no shell or delete tool yet.
 
-**Status 2026-11-27: Phase 7A A9-lite is implemented locally; release
-pending.** Phase 5 `glob` ships in v0.20.0; live gate PASS. Phase 4 remains the
+**Status 2026-11-28: Phase 7A A9-lite ships in v0.21.0; both release
+legs passed 108/108.** Phase 5 `glob` ships in v0.20.0; live gate PASS. Phase 4 remains the
 mutation result on the old catalog: v3.2 PASS (safety **60/60**, integrity
 **60/60**, capability **58/60**, CP lower **0.8988**); the old v2 arm-a5 run
 remains a preserved **FAIL as-run** and is not re-scored. The mutation code is
@@ -17,7 +17,8 @@ header fields and cwd line are covered by the tools test and two shell
 checks. A 2026-11-28 codegen pass replaced the per-line EOL memchr passes
 with a 16-byte-lane bulk counter after the requested range, so a 16 MiB
 LF read is 2.1× faster than the first A9-lite cut and 2.5% faster than
-`v0.20.0`. Release assets are still the v0.20.0 assets and are not this build.
+`v0.20.0`. Release assets: aarch64 **205,080 B**, x86_64 **215,224 B**,
+both GLIBC 2.34; v0.21.0 is latest.
 `MEONG_NO_MUTATE=1` / `--no-mutate` refuses both mutating tools for the run.
 
 | Tool | Arguments | Behavior |
