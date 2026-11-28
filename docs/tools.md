@@ -5,22 +5,24 @@ Meong's TUI exposes six tools: four **read-only** (`read_file`, `search`,
 the selected model reports `supports_function_calling: true`; `--oneshot` does
 not send a `tools` array. There is no shell or delete tool yet.
 
-**Status 2026-11-25: Phase 5 `glob` ships in v0.20.0; live gate PASS.**
-Phase 4 remains the mutation result on the old catalog: v3.2 PASS (safety
-**60/60**, integrity **60/60**, capability **58/60**, CP lower **0.8988**);
-the old v2 arm-a5 run remains a preserved **FAIL as-run** and is not re-scored.
-The mutation code is unchanged, but the catalog moved from 2,861 B
-(`73c4337c…`) to **3,538 B (`6b35fba3…`)**, so Phase 4 rows are not pooled with
-this catalog. Local build **205,480 B**; suite **106/106**; live gate **PASS**
-(one `glob` call, 29/29, 469 B). `v0.20.0` carries the Phase 5 catalog; the
-Phase 4 mutation gate was run on the previous 2,861 B catalog and is not
-pooled with this one. The older release pages remain provisional.
-`MEONG_NO_MUTATE=1` / `--no-mutate` refuses both mutating tools
-for the run.
+**Status 2026-11-27: Phase 7A A9-lite is implemented locally; release
+pending.** Phase 5 `glob` ships in v0.20.0; live gate PASS. Phase 4 remains the
+mutation result on the old catalog: v3.2 PASS (safety **60/60**, integrity
+**60/60**, capability **58/60**, CP lower **0.8988**); the old v2 arm-a5 run
+remains a preserved **FAIL as-run** and is not re-scored. The mutation code is
+unchanged. A9-lite is read-only metadata: no new tool, no new argument, no new
+permission class, and `TOOLS_JSON` is unchanged at **3,538 B**
+(`6b35fba3…`). Local build **208,360 B**; suite **108/108**; the A9-lite
+header fields and cwd line are covered by the tools test and two shell
+checks. A 2026-11-28 codegen pass replaced the per-line EOL memchr passes
+with a 16-byte-lane bulk counter after the requested range, so a 16 MiB
+LF read is 2.1× faster than the first A9-lite cut and 2.5% faster than
+`v0.20.0`. Release assets are still the v0.20.0 assets and are not this build.
+`MEONG_NO_MUTATE=1` / `--no-mutate` refuses both mutating tools for the run.
 
 | Tool | Arguments | Behavior |
 | --- | --- | --- |
-| `read_file` | `path`, `start_line?`, `end_line?` | Metadata + range; default 400 lines |
+| `read_file` | `path`, `start_line?`, `end_line?` | Metadata + range; default 400 lines; mode/EOL/range bytes/longest line |
 | `search` | `pattern`, `path`, `glob?`, `context_lines?` | POSIX regex; glob; default context 2 |
 | `list_dir` | `path` | Type + size, sorted |
 | `glob` | `pattern`, `path` | Filename match; `**` recursive; files only; sorted |
@@ -29,8 +31,20 @@ for the run.
 
 Details:
 
-- `read_file` accepts regular files only, rejects binary files, and reports
-  size, mtime, and total lines. The line count stops at 16 MiB.
+- `read_file` accepts regular files only, rejects binary files (a NUL in the
+  first 4 KiB), and reports size, mtime, total lines, **mode**, and **EOL**.
+  Mode is `%04o` of the opened file's `st_mode` (`0644`, `4755`, `1777`).
+  EOL is `lf`, `crlf`, `cr`, `mixed`, `none`, or `binary`, classified over the
+  whole scanned window (up to 16 MiB); a trailing `+` means the window did not
+  cover the file. When a line range is selected, the header also prints
+  `range_bytes` (raw bytes of the selected lines, when different from the file
+  size) and `max_line` (longest selected line, when over 200 bytes). Both are
+  range-local; EOL is a file/window property. The header keeps
+  `[file: <path-as-given>` first; control characters, `|`, `]`, and `\` in a
+  printed path are escaped.
+- The tool-on system message carries `Working directory: <abs>` once per
+  request. `read_file` does not repeat cwd in every result. The value comes
+  from `getcwd`, is canonicalised at startup, and is escaped for display.
 - `search` skips `.git`, `build`, and `node_modules`, never follows symlinks,
   and caps the content scan at 500 opened files / 200 matches / depth 32.
   `context_lines` is capped at 20. Its `glob` argument is a basename filter
@@ -74,8 +88,15 @@ Details:
 ## How paths resolve
 
 - Tool paths resolve against Meong's working directory.
+- When tools are on, the system message carries `Working directory: <abs>`
+  once per request. `read_file` keeps the path as the model wrote it, so a
+  relative path is still short; the cwd line supplies the base.
+- Printed paths escape `\n`, `\r`, `|`, `]`, `\`, and C0/DEL. A filename
+  cannot forge a header field or a new result line.
 - Meong sends its process cwd as `x-paig-workdir` on each request, so PAIG's
   free-model `<env>` block matches the directory these tools resolve against.
+  PAIG may also print a `Working directory:` line; Meong's line is independent
+  and is the one the tool contract relies on.
 
 ## Permission model
 
@@ -145,6 +166,10 @@ path or a linked/foreign-owned target; `--yolo` cannot read a protected path.
 Only use them when you accept that a prompt-injected tool result could
 exercise that access and send the contents upstream through PAIG.
 
+**Metadata is not a security check.** `mode`, `eol`, `range_bytes`, and
+`max_line` describe what was opened; they do not grant access, prove the file
+is safe, or replace the protected-path and permission checks.
+
 ## Display
 
 Tool calls hang under the assistant turn as a tree: `├─` marks a call with a
@@ -158,9 +183,17 @@ box. Arguments are shortened for display only: the request keeps the exact
 JSON from the model, and the stored `role:"tool"` text is only the handler
 result, never the tree or metadata.
 
+The `read_file` metadata header is one logical line and grows with the
+optional `range_bytes`/`max_line` fields. In a narrow output box it can wrap
+or clip; the model still receives the full line. The A9-lite canary is the
+40×20 ASCII box test, not a promise that every path length fits.
+
 ## Results and limits
 
 - Tool results are one `role:"tool"` message per call, in call order, with the call id and name.
+- `read_file` results start with `[file: <path-as-given> | bytes | mtime |
+  lines | mode | eol]`; a selected range may add `range_bytes` and `max_line`.
+  The path is the model's spelling, not a resolved absolute path.
 - Results up to 16 KiB stay inline. Larger results keep the first 1/5 and last 4/5 with an omission notice; the full text is written under the cache directory's `tool-output/` path. This bound applies to successful results; an error is a short string.
 - `edit` results are intentionally small: the success envelope plus an excerpt of the edited lines, and one-line errors for a missing/duplicate match, a stale approval, a protected path, a link, or a write failure. The full old/new arguments are never echoed into the transcript.
 - `write` results are one short line: `OK: created path (N B)`, `OK: overwrote path (M -> N B)`, or `OK: unchanged path (N B)`. Errors name the path and the reason (already exists, missing parent, directory, symlink, hardlink, owner, binary, cap, NUL, disk, stale). Content is never echoed.

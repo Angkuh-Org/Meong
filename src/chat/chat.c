@@ -97,6 +97,8 @@ static int build_chat_body(App *a, Buf *b, int *trimmed_out) {
         buf_init(&sys);
         if (use_tools) {
             buf_adds(&sys, TOOL_POLICY);
+            buf_adds(&sys, "\n\n");
+            buf_working_dir(&sys, a->cwd);
         }
         if (a->system_prompt && *a->system_prompt) {
             if (sys.len > 0) {

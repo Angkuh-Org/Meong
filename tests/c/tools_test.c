@@ -316,6 +316,7 @@ static void test_read_file(const char *dir) {
     static const char text[] = "alpha\nbravo\ncharlie\ndelta\necho\n";
     char *path = join(dir, "sample.txt");
     put(path, text, strlen(text));
+    chmod(path, 0640);
 
     char args[2048];
     char want[64];
@@ -335,7 +336,20 @@ static void test_read_file(const char *dir) {
        "read_file starts with the metadata header");
     ok(out.p && strstr(out.p, "1: alpha") && strstr(out.p, "5: echo"),
        "read_file shows every line by default");
+    ok(out.p && strstr(out.p, "mode: 0640") != NULL,
+       "read_file reports the file mode");
+    ok(out.p && strstr(out.p, "eol: lf") != NULL,
+       "read_file reports lf line endings");
     buf_free(&out);
+
+    chmod(path, 04755);
+    snprintf(args, sizeof args, "{\"path\":\"%s\"}", path);
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
+             sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, "mode: 4755") != NULL,
+       "read_file reports special mode bits");
+    buf_free(&out);
+    chmod(path, 0640);
 
     snprintf(args, sizeof args,
              "{\"path\":\"%s\",\"start_line\":2,\"end_line\":3}", path);
@@ -347,6 +361,226 @@ static void test_read_file(const char *dir) {
     ok(out.p && !strstr(out.p, "1: alpha") && !strstr(out.p, "4: delta"),
        "read_file drops out-of-range lines");
     buf_free(&out);
+
+    char *crlf = join(dir, "crlf.txt");
+    char *mixed = join(dir, "mixed.txt");
+    char *none = join(dir, "none.txt");
+    char *cr = join(dir, "cr.txt");
+    char *longf = join(dir, "longline.txt");
+    char *pipe = join(dir, "pipe|name.txt");
+    static const char crlf_text[] = "a\r\nb\r\nc\r\n";
+    static const char mixed_text[] = "a\r\nb\nc\r\n";
+    static const char cr_text[] = "a\rb\rc\r";
+    put(crlf, crlf_text, sizeof crlf_text - 1);
+    put(mixed, mixed_text, sizeof mixed_text - 1);
+    put(none, "x", 1);
+    put(cr, cr_text, sizeof cr_text - 1);
+    Buf longbuf;
+    buf_init(&longbuf);
+    buf_adds(&longbuf, "one\n");
+    for (int i = 0; i < 250; i++) {
+        buf_addc(&longbuf, 'x');
+    }
+    buf_adds(&longbuf, "\ntwo\n");
+    put(longf, longbuf.p, longbuf.len);
+    buf_free(&longbuf);
+    put(pipe, "pipe\n", 5);
+
+    snprintf(args, sizeof args, "{\"path\":\"%s\"}", crlf);
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
+             sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, "eol: crlf") != NULL &&
+           strstr(out.p, "1: a\r\n") != NULL,
+       "read_file reports crlf line endings");
+    buf_free(&out);
+
+    char *boundary = join(dir, "boundary.txt");
+    Buf bbuf;
+    buf_init(&bbuf);
+    for (int i = 0; i < 65535; i++) {
+        buf_addc(&bbuf, 'a');
+    }
+    buf_adds(&bbuf, "\r\nbbbbbbbbbb\r\n");
+    put(boundary, bbuf.p, bbuf.len);
+    buf_free(&bbuf);
+    snprintf(args, sizeof args, "{\"path\":\"%s\"}", boundary);
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
+             sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, "eol: crlf") != NULL &&
+           strstr(out.p, "eol: mixed") == NULL,
+       "read_file carries CRLF across the 64 KiB chunk boundary");
+    buf_free(&out);
+
+    snprintf(args, sizeof args, "{\"path\":\"%s\"}", mixed);
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
+             sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, "eol: mixed") != NULL,
+       "read_file reports mixed line endings");
+    buf_free(&out);
+
+    snprintf(args, sizeof args, "{\"path\":\"%s\"}", none);
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
+             sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, "eol: none") != NULL,
+       "read_file reports no line ending");
+    buf_free(&out);
+
+    snprintf(args, sizeof args, "{\"path\":\"%s\"}", cr);
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
+             sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, "lines: 1") != NULL &&
+           strstr(out.p, "eol: cr") != NULL,
+       "read_file reports cr-only line endings");
+    buf_free(&out);
+
+    /* >64 KiB and >400 lines: the count switches to the 16-byte bulk path
+     * after the requested range, so the whole-window eol/lines fields must
+     * still classify CRLF as CRLF and not "mixed". */
+    char *bulk = join(dir, "bulk.txt");
+    Buf kbuf;
+    buf_init(&kbuf);
+    for (int i = 0; i < 1600; i++) {
+        for (int k = 0; k < 48; k++) {
+            buf_addc(&kbuf, (char)('a' + i % 26));
+        }
+        buf_adds(&kbuf, "\r\n");
+    }
+    put(bulk, kbuf.p, kbuf.len);
+    char *btail = join(dir, "bulktail.txt");
+    put(btail, kbuf.p, kbuf.len - 2);
+    buf_free(&kbuf);
+    snprintf(args, sizeof args, "{\"path\":\"%s\"}", bulk);
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
+             sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, "lines: 1600") != NULL &&
+           strstr(out.p, "eol: crlf") != NULL &&
+           strstr(out.p, "range_bytes: 20000") != NULL,
+       "read_file bulk count keeps crlf and the line total");
+    buf_free(&out);
+
+    snprintf(args, sizeof args, "{\"path\":\"%s\"}", btail);
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
+             sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, "lines: 1600") != NULL &&
+           strstr(out.p, "eol: crlf") != NULL,
+       "read_file bulk counts an unterminated tail");
+    buf_free(&out);
+
+    snprintf(args, sizeof args,
+             "{\"path\":\"%s\",\"start_line\":1000,\"end_line\":1005}",
+             bulk);
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
+             sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, "lines: 1600") != NULL &&
+           strstr(out.p, "range_bytes: 300") != NULL,
+       "read_file bulk count after a late start_line");
+    buf_free(&out);
+
+    char *latebin = join(dir, "latebin.txt");
+    Buf nbuf;
+    buf_init(&nbuf);
+    for (int i = 0; i < 1600; i++) {
+        for (int k = 0; k < 48; k++) {
+            buf_addc(&nbuf, 'n');
+        }
+        buf_adds(&nbuf, "\r\n");
+    }
+    nbuf.p[70000] = '\0';
+    put(latebin, nbuf.p, nbuf.len);
+    buf_free(&nbuf);
+    snprintf(args, sizeof args, "{\"path\":\"%s\"}", latebin);
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
+             sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, "eol: binary") != NULL,
+       "read_file bulk count sees a NUL past the first chunk");
+    buf_free(&out);
+
+    /* CR at byte 65535 and LF at 65536: the pair straddles the chunk edge
+     * where the bulk path takes over, so its first vector must inherit
+     * prev_cr and still classify the whole file as CRLF. */
+    char *edge = join(dir, "bulkedge.txt");
+    Buf ebuf;
+    buf_init(&ebuf);
+    for (int i = 0; i < 1310; i++) {
+        for (int k = 0; k < 48; k++) {
+            buf_addc(&ebuf, 'a');
+        }
+        buf_adds(&ebuf, "\r\n");
+    }
+    for (int k = 0; k < 35; k++) {
+        buf_addc(&ebuf, 'z');
+    }
+    buf_adds(&ebuf, "\r\n");
+    for (int i = 0; i < 3000; i++) {
+        for (int k = 0; k < 48; k++) {
+            buf_addc(&ebuf, 'b');
+        }
+        buf_adds(&ebuf, "\r\n");
+    }
+    put(edge, ebuf.p, ebuf.len);
+    buf_free(&ebuf);
+    snprintf(args, sizeof args,
+             "{\"path\":\"%s\",\"start_line\":1,\"end_line\":10}", edge);
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
+             sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, "lines: 4311") != NULL &&
+           strstr(out.p, "eol: crlf") != NULL &&
+           strstr(out.p, "range_bytes: 500") != NULL,
+       "read_file bulk keeps crlf across the chunk edge");
+    buf_free(&out);
+
+    /* LF lines then CRLF lines: the transition lands in the bulk stretch,
+     * so a bulk path that adds total LF into si->lf would report "mixed"
+     * as "lf" or "crlf" and miss the second style. */
+    char *bmix = join(dir, "bulkmixed.txt");
+    Buf mbuf;
+    buf_init(&mbuf);
+    for (int i = 0; i < 1600; i++) {
+        for (int k = 0; k < 49; k++) {
+            buf_addc(&mbuf, 'm');
+        }
+        buf_addc(&mbuf, '\n');
+    }
+    for (int i = 0; i < 1600; i++) {
+        for (int k = 0; k < 48; k++) {
+            buf_addc(&mbuf, 'n');
+        }
+        buf_adds(&mbuf, "\r\n");
+    }
+    put(bmix, mbuf.p, mbuf.len);
+    buf_free(&mbuf);
+    snprintf(args, sizeof args, "{\"path\":\"%s\"}", bmix);
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
+             sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, "lines: 3200") != NULL &&
+           strstr(out.p, "eol: mixed") != NULL &&
+           strstr(out.p, "range_bytes: 20000") != NULL,
+       "read_file bulk count classifies a mixed window");
+    buf_free(&out);
+
+    snprintf(args, sizeof args,
+             "{\"path\":\"%s\",\"start_line\":2,\"end_line\":2}", longf);
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
+             sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, "range_bytes: 251") != NULL,
+       "read_file reports the emitted range length");
+    ok(rc == TOOL_OK && out.p && strstr(out.p, "max_line: 250") != NULL,
+       "read_file reports the longest emitted line");
+    buf_free(&out);
+
+    snprintf(args, sizeof args, "{\"path\":\"%s\"}", pipe);
+    rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
+             sizeof err);
+    ok(rc == TOOL_OK && out.p && strstr(out.p, "pipe\\|name.txt") != NULL,
+       "read_file escapes a pipe in the path header");
+    buf_free(&out);
+
+    Buf wd;
+    buf_init(&wd);
+    buf_working_dir(&wd, "/tmp/a|b\nc]");
+    ok(wd.p && strstr(wd.p, "Working directory: /tmp/a\\|b\\nc\\]") != NULL,
+       "read metadata reports the working directory");
+    buf_free(&wd);
 
     snprintf(args, sizeof args, "{\"path\":\"%s\",\"start_line\":9}", path);
     rc = run("read_file", args, auth_allow, NULL, &out, &ask, err,
@@ -455,6 +689,13 @@ static void test_read_file(const char *dir) {
     free(wide);
     free(big);
     free(bin);
+    free(crlf);
+    free(mixed);
+    free(none);
+    free(cr);
+    free(longf);
+    free(pipe);
+    free(boundary);
     free(path);
 }
 
@@ -500,6 +741,17 @@ static void test_list_dir(const char *dir) {
        "list_dir says so when the directory is empty");
     buf_free(&out);
 
+    char *piped = join(dir, "pipe|entry.txt");
+    put(piped, "x", 1);
+    snprintf(args, sizeof args, "{\"path\":\"%s\"}", dir);
+    rc = run("list_dir", args, auth_allow, NULL, &out, &ask, err,
+             sizeof err);
+    ok(rc == TOOL_OK && out.p &&
+           strstr(out.p, "f pipe\\|entry.txt 1") != NULL,
+       "list_dir escapes a pipe in an entry name");
+    buf_free(&out);
+
+    free(piped);
     free(empty);
     free(file);
     free(link);
