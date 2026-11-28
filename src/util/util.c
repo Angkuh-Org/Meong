@@ -130,6 +130,45 @@ void buf_json_str(Buf *b, const char *s, size_t len) {
     buf_addc(b, '"');
 }
 
+void buf_path_safe(Buf *b, const char *s) {
+    static const char hex[] = "0123456789abcdef";
+    if (!s) {
+        return;
+    }
+    const unsigned char *p = (const unsigned char *)s;
+    while (*p) {
+        const unsigned char *run = p;
+        while (*p >= 0x20 && *p != 0x7f && *p != '|' && *p != ']' &&
+               *p != '\\') {
+            p++;
+        }
+        if (p > run) {
+            buf_add(b, run, (size_t)(p - run));
+        }
+        if (!*p) {
+            break;
+        }
+        switch (*p) {
+        case '\n': buf_adds(b, "\\n"); break;
+        case '\r': buf_adds(b, "\\r"); break;
+        case '|': buf_adds(b, "\\|"); break;
+        case ']': buf_adds(b, "\\]"); break;
+        case '\\': buf_adds(b, "\\\\"); break;
+        default: {
+            char tmp[4] = {'\\', 'x', hex[*p >> 4], hex[*p & 15]};
+            buf_add(b, tmp, sizeof tmp);
+            break;
+        }
+        }
+        p++;
+    }
+}
+
+void buf_working_dir(Buf *b, const char *cwd) {
+    buf_adds(b, "Working directory: ");
+    buf_path_safe(b, cwd && *cwd ? cwd : "<unknown>");
+}
+
 char *buf_take(Buf *b) {
     char *p = b->p;
     if (!p) {

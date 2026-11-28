@@ -174,14 +174,125 @@ static void put(Buf *b, const char *s, size_t n, int *capped) {
 }
 
 /*
- * One pass: count every line for the header, copy only [start, end] into body.
- * Out-of-range stretches skip with memchr, so a 64 MiB file costs one scan.
- * need_prefix survives a chunk boundary: a line longer than the 64 KiB read
- * buffer must not grow a second "N: " in the middle.  The count itself stops
- * at SCAN_BYTES_MAX so a 10 GB log is not read end to end for one header.
+ * One pass: count every line for the header, copy only [start, end] into body,
+ * and classify the line endings over the whole scanned window. Lines before
+ * the range use memchr; once line > end nothing needs a position, so the rest
+ * of the window is counted by bulk_scan() in 16-byte lanes. need_prefix
+ * survives a chunk boundary: a line longer than the 64 KiB read buffer must
+ * not grow a second "N: " in the middle. The count itself stops at
+ * SCAN_BYTES_MAX so a 10 GB log is not read end to end for one header.
  */
+typedef struct {
+    long long lines;
+    long long range_bytes;
+    long long max_line;
+    long long lf;
+    long long crlf;
+    long long cr;
+    int binary;
+    int partial;
+} ScanInfo;
+
+static const char *eol_name(const ScanInfo *si) {
+    if (si->binary) {
+        return "binary";
+    }
+    int styles = (si->lf > 0) + (si->crlf > 0) + (si->cr > 0);
+    if (styles >= 2) {
+        return "mixed";
+    }
+    if (si->crlf) {
+        return "crlf";
+    }
+    if (si->cr) {
+        return "cr";
+    }
+    if (si->lf) {
+        return "lf";
+    }
+    return si->partial ? "unknown" : "none";
+}
+
+/*
+ * Bulk EOL counter for the stretch after the requested range: once line > end
+ * no line position is needed, only counts. One 16-byte-lane pass replaces a
+ * memchr call per line plus the separate CR/NUL passes; the portable vector
+ * type compiles to NEON on aarch64 and SSE2 on x86-64. prev_cr is the byte
+ * before p[0] (0 except when a chunk starts on a CR).
+ */
+typedef unsigned char Vec16 __attribute__((vector_size(16)));
+
+static unsigned vec_sum(Vec16 v) {
+    unsigned char t[16];
+    memcpy(t, &v, sizeof t);
+    unsigned s = 0;
+    for (int i = 0; i < 16; i++) {
+        s += t[i];
+    }
+    return s;
+}
+
+static int bulk_scan(const unsigned char *p, size_t n, int prev_cr,
+                     long long *lf_out, long long *crlf_out,
+                     long long *cr_out) {
+    const Vec16 vlf = {10, 10, 10, 10, 10, 10, 10, 10,
+                       10, 10, 10, 10, 10, 10, 10, 10};
+    const Vec16 vcr = {13, 13, 13, 13, 13, 13, 13, 13,
+                       13, 13, 13, 13, 13, 13, 13, 13};
+    const Vec16 vzero = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    const Vec16 one = {1, 1, 1, 1, 1, 1, 1, 1,
+                       1, 1, 1, 1, 1, 1, 1, 1};
+    Vec16 acc_lf = vzero, acc_cr = vzero, acc_crlf = vzero, nul = vzero;
+    long long lf = 0, cr = 0, crlf = 0;
+    size_t i = 0;
+    int batch = 0;
+    for (; i + 16 <= n; i += 16) {
+        Vec16 v, prev;
+        memcpy(&v, p + i, sizeof v);
+        if (i > 0) {
+            memcpy(&prev, p + i - 1, sizeof prev);
+        } else {
+            unsigned char t[16];
+            t[0] = prev_cr ? '\r' : 0;
+            memcpy(t + 1, p, 15);
+            memcpy(&prev, t, sizeof prev);
+        }
+        acc_lf += (v == vlf) & one;
+        acc_cr += (v == vcr) & one;
+        acc_crlf += ((v == vlf) & (prev == vcr)) & one;
+        nul |= (v == vzero);
+        if (++batch == 200) {
+            lf += vec_sum(acc_lf);
+            cr += vec_sum(acc_cr);
+            crlf += vec_sum(acc_crlf);
+            acc_lf = acc_cr = acc_crlf = vzero;
+            batch = 0;
+        }
+    }
+    lf += vec_sum(acc_lf);
+    cr += vec_sum(acc_cr);
+    crlf += vec_sum(acc_crlf);
+    unsigned char nt[16];
+    memcpy(nt, &nul, sizeof nt);
+    int binary = 0;
+    for (int k = 0; k < 16; k++) {
+        binary |= nt[k] != 0;
+    }
+    for (; i < n; i++) {
+        unsigned char c = p[i];
+        lf += c == '\n';
+        cr += c == '\r';
+        crlf += c == '\n' && (i > 0 ? p[i - 1] == '\r' : prev_cr);
+        binary |= c == 0;
+    }
+    *lf_out = lf;
+    *crlf_out = crlf;
+    *cr_out = cr;
+    return binary;
+}
+
 static void scan_range(FILE *f, long long start, long long end, Buf *body,
-                       long long *lines_out, int *capped, int *partial) {
+                       ScanInfo *si, int *capped) {
     /* 64 KiB is the measured sweet spot: one chunk fills OUT_CAP and glibc
      * reads it directly. 16 MiB file, best of 5: 64 KiB 8.4 ms, 32 KiB
      * 8.6 ms, 16 KiB 8.9 ms, 4 KiB 18.0 ms. Keep it unless that trade
@@ -189,24 +300,61 @@ static void scan_range(FILE *f, long long start, long long end, Buf *body,
     char chunk[1 << 16];
     size_t n;
     long long line = 1;
-    long long total = 0;
     long long bytes = 0;
+    long long cr_total = 0;
+    long long cur_len = 0;
+    long long bulk_lf = 0;
     int in_range = start <= 1 && 1 <= end;
     int need_prefix = 1;
     int last_nl = 1;
+    int prev_cr = 0;
+    int bulk = 0;
+    memset(si, 0, sizeof *si);
     *capped = 0;
-    *partial = 0;
     while ((n = fread(chunk, 1, sizeof chunk, f)) > 0) {
-        size_t i = 0;
         if (bytes + (long long)n > SCAN_BYTES_MAX) {
-            *partial = 1;
+            si->partial = 1;
             break;
         }
         bytes += (long long)n;
+
+        if (bulk) {
+            long long blf, bcrlf, bcr;
+            si->binary |= bulk_scan((const unsigned char *)chunk, n, prev_cr,
+                                    &blf, &bcrlf, &bcr);
+            si->lf += blf - bcrlf;
+            si->crlf += bcrlf;
+            cr_total += bcr;
+            bulk_lf += blf;
+            last_nl = chunk[n - 1] == '\n';
+            prev_cr = chunk[n - 1] == '\r';
+            continue;
+        }
+
+        /* NUL and CR counts over this chunk. memchr keeps this near I/O
+         * speed; a scalar state machine measured 4.3-4.6x slower on 16 MiB.
+         * LF classification rides the line loop below: it already finds
+         * every newline, so a second memchr pass per line would double the
+         * call count on a text-heavy file. */
+        if (memchr(chunk, 0, n)) {
+            si->binary = 1;
+        }
+        for (size_t p = 0; p < n;) {
+            char *q = memchr(chunk + p, '\r', n - p);
+            if (!q) {
+                break;
+            }
+            cr_total++;
+            p = (size_t)(q - chunk) + 1;
+        }
+
+        size_t i = 0;
         while (i < n) {
             char *nl = memchr(chunk + i, '\n', n - i);
             size_t seg = nl ? (size_t)(nl - chunk) - i : n - i;
+            cur_len += (long long)seg;
             if (in_range) {
+                si->range_bytes += (long long)seg + (nl ? 1 : 0);
                 if (need_prefix) {
                     char pre[32];
                     int k = snprintf(pre, sizeof pre, "%lld: ", line);
@@ -222,18 +370,35 @@ static void scan_range(FILE *f, long long start, long long end, Buf *body,
                 last_nl = 0;
                 break;
             }
-            total++;
+            size_t at = i + seg;
+            if (at > 0 ? chunk[at - 1] == '\r' : prev_cr) {
+                si->crlf++;
+            } else {
+                si->lf++;
+            }
+            if (in_range && cur_len > si->max_line) {
+                si->max_line = cur_len;
+            }
+            cur_len = 0;
             line++;
             last_nl = 1;
             need_prefix = 1;
-            i += seg + 1;
+            i = at + 1;
             in_range = line >= start && line <= end;
+        }
+        prev_cr = n > 0 && chunk[n - 1] == '\r';
+        if (line > end) {
+            bulk = 1;
         }
     }
     if (!last_nl) {
-        total++;
+        if (in_range && !si->partial && cur_len > si->max_line) {
+            si->max_line = cur_len;
+        }
     }
-    *lines_out = total;
+    long long total = line + bulk_lf;
+    si->lines = last_nl ? total - 1 : total;
+    si->cr = cr_total - si->crlf;
 }
 
 int tool_run_read_file(const char *cwd, const JDoc *d, int args, void *ud,
@@ -252,9 +417,8 @@ int tool_run_read_file(const char *cwd, const JDoc *d, int args, void *ud,
     struct stat st;
     long long start = 1;
     long long end = LLONG_MIN; /* sentinel: end_line was not given */
-    long long total = 0;
+    ScanInfo si;
     int capped = 0;
-    int partial = 0;
     int rc = TOOL_ERR;
 
     if (arg_string(d, args, "path", 1, &path, &c) < 0) {
@@ -315,14 +479,26 @@ int tool_run_read_file(const char *cwd, const JDoc *d, int args, void *ud,
         goto done;
     }
 
-    scan_range(f, start, end, &body, &total, &capped, &partial);
+    scan_range(f, start, end, &body, &si, &capped);
     char mt[32];
     fmt_mtime(st.st_mtime, mt, sizeof mt);
-    buf_printf(out, "[file: %s | bytes: %lld | mtime: %s | lines: %lld%s]\n",
-               path, (long long)st.st_size, mt, total, partial ? "+" : "");
+    buf_adds(out, "[file: ");
+    buf_path_safe(out, path);
+    buf_printf(out, " | bytes: %lld | mtime: %s | lines: %lld%s",
+               (long long)st.st_size, mt, si.lines, si.partial ? "+" : "");
+    buf_printf(out, " | mode: %04o | eol: %s%s",
+               (unsigned)(st.st_mode & 07777), eol_name(&si),
+               si.partial ? "+" : "");
+    if (si.range_bytes != (long long)st.st_size) {
+        buf_printf(out, " | range_bytes: %lld", si.range_bytes);
+    }
+    if (si.max_line > 200) {
+        buf_printf(out, " | max_line: %lld", si.max_line);
+    }
+    buf_adds(out, "]\n");
     if (body.len) {
         buf_add(out, body.p, body.len);
-    } else if (total == 0) {
+    } else if (si.lines == 0) {
         buf_adds(out, "[empty file]\n");
     } else {
         buf_printf(out, "[no lines in range %lld-%lld]\n", start, end);
@@ -360,12 +536,15 @@ static int cmp_names(const void *a, const void *b) {
 
 static void emit_match(Buf *out, const char *path, long long no,
                        const char *text, int cut) {
-    buf_printf(out, "%s:%lld: %s%s\n", path, no, text, cut ? " [...]" : "");
+    buf_path_safe(out, path);
+    buf_printf(out, ":%lld: %s%s\n", no, text, cut ? " [...]" : "");
 }
 
 static void emit_ctx(Buf *out, const char *path, long long no,
                      const char *text, int cut) {
-    buf_printf(out, "  %s:%lld: %s%s\n", path, no, text, cut ? " [...]" : "");
+    buf_adds(out, "  ");
+    buf_path_safe(out, path);
+    buf_printf(out, ":%lld: %s%s\n", no, text, cut ? " [...]" : "");
 }
 
 /*
@@ -713,10 +892,13 @@ int tool_run_list_dir(const char *cwd, const JDoc *d, int args, void *ud,
         struct stat st;
         if (lstat(full, &st) == 0) {
             if (S_ISDIR(st.st_mode)) {
-                buf_printf(out, "d %s\n", names[i]);
+                buf_adds(out, "d ");
+                buf_path_safe(out, names[i]);
+                buf_addc(out, '\n');
             } else if (S_ISREG(st.st_mode)) {
-                buf_printf(out, "f %s %lld\n", names[i],
-                           (long long)st.st_size);
+                buf_adds(out, "f ");
+                buf_path_safe(out, names[i]);
+                buf_printf(out, " %lld\n", (long long)st.st_size);
             } else if (S_ISLNK(st.st_mode)) {
                 char tgt[PATH_MAX];
                 ssize_t k = readlink(full, tgt, sizeof tgt - 1);
@@ -724,7 +906,11 @@ int tool_run_list_dir(const char *cwd, const JDoc *d, int args, void *ud,
                     k = 0;
                 }
                 tgt[k] = '\0';
-                buf_printf(out, "l %s -> %s\n", names[i], k ? tgt : "?");
+                buf_adds(out, "l ");
+                buf_path_safe(out, names[i]);
+                buf_adds(out, " -> ");
+                buf_path_safe(out, k ? tgt : "?");
+                buf_addc(out, '\n');
             }
         }
         free(full);
@@ -972,7 +1158,8 @@ static void glob_emit(Glob *g, Buf *out) {
             g->truncated = 1;
             break;
         }
-        buf_printf(out, "%s\n", g->heap[i]);
+        buf_path_safe(out, g->heap[i]);
+        buf_addc(out, '\n');
         emitted++;
     }
     if (g->n == 0) {

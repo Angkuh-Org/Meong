@@ -21,6 +21,17 @@ void buf_adds(Buf *b, const char *s);
 void buf_addc(Buf *b, char c);
 void buf_printf(Buf *b, const char *fmt, ...);
 void buf_json_str(Buf *b, const char *s, size_t len);
+
+/*
+ * Append a path for a model-facing header. Escapes characters that can forge
+ * a header field or a line: \n, \r, '|', ']' and C0/DEL become visible escape
+ * sequences. Ordinary paths are unchanged.
+ */
+void buf_path_safe(Buf *b, const char *s);
+
+/* Append the tool-context "Working directory: ..." line, safely escaped. */
+void buf_working_dir(Buf *b, const char *cwd);
+
 char *buf_take(Buf *b);
 
 void *xmalloc(size_t n);

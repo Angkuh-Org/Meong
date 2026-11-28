@@ -136,9 +136,17 @@ $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     src/tools/edit.c src/tools/write.c src/tools/perm.c src/json/json.c \
     src/util/util.c src/util/renameat2.c \
     || fail "tools test did not compile"
-"$TMP/tools_test" >/dev/null \
-    || fail "tool handlers failed"
+"$TMP/tools_test" >"$TMP/tools.log" \
+    || { cat "$TMP/tools.log"; fail "tool handlers failed"; }
 ok "tools: read_file, search, list_dir and result bounding"
+grep -q 'read_file reports the file mode' "$TMP/tools.log" &&
+    grep -q 'read_file reports crlf line endings' "$TMP/tools.log" \
+    || fail "read metadata mode/eol missing"
+ok "tools: read metadata reports mode and eol"
+grep -q 'read_file reports the emitted range length' "$TMP/tools.log" &&
+    grep -q 'read metadata reports the working directory' "$TMP/tools.log" \
+    || fail "read metadata range length/cwd missing"
+ok "tools: read metadata reports range length and cwd"
 
 $HOSTCC -std=c11 -O2 -D_DEFAULT_SOURCE -D_GNU_SOURCE -Isrc \
     -o "$TMP/glob_test" tests/c/glob_test.c src/tools/glob.c \
